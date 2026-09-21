@@ -205,14 +205,19 @@ private struct SetupView: View {
                 if model.setupStep > 0 {
                     Button(action: model.retreatSetup) {
                         Image(systemName: "chevron.left")
+                            .frame(width: 12, height: 16)
                             .accessibilityLabel("Back")
                     }
                     .help("Back")
                     .modifier(SetupButtonAppearance(primary: false))
                 }
-                Button(model.setupStep == 2 ? "Start" : "Continue", action: model.advanceSetup)
-                    .modifier(SetupButtonAppearance(primary: true))
+                Button(action: model.advanceSetup) {
+                    Text(model.setupStep == 2 ? "Start" : "Continue")
+                        .frame(height: 16)
+                }
+                .modifier(SetupButtonAppearance(primary: true))
             }
+            .font(.system(size: 11, weight: .medium))
             .padding(.top, 2)
             .padding(.bottom, 8)
         }
