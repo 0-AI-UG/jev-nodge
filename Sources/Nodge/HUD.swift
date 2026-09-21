@@ -400,11 +400,13 @@ private struct PrismaticGlow: View {
 
                 // Screen blending retains saturation as the colored plumes overlap.
                 context.blendMode = .screen
-                ribbon(Color(red: 0.65, green: 0.04, blue: 1), offset: 16, width: 12, blur: 7, opacity: 0.65)
-                ribbon(Color(red: 1, green: 0.06, blue: 0.32), offset: 12, width: 7, blur: 3.5, opacity: 0.85)
-                ribbon(Color(red: 1, green: 0.56, blue: 0.05), offset: 8, width: 5, blur: 2.5, opacity: 0.8)
-                ribbon(Color(red: 0.02, green: 0.85, blue: 1), offset: 4.5, width: 5, blur: 2.5, opacity: 0.95)
-                ribbon(Color(red: 0.16, green: 0.2, blue: 1), offset: 2, width: 7, blur: 4, opacity: 0.8)
+                ribbon(Color(red: 0.08, green: 0.5, blue: 1), offset: 14, width: 10, blur: 6, opacity: 0.55)
+                ribbon(Color(red: 0.3, green: 0.18, blue: 1), offset: 15, width: 2, blur: 2, opacity: 0.25)
+                ribbon(Color(red: 0.02, green: 0.9, blue: 1), offset: 10, width: 5, blur: 2.5, opacity: 0.9)
+                ribbon(Color(red: 0.25, green: 1, blue: 0.65), offset: 7.5, width: 2, blur: 1.8, opacity: 0.55)
+                ribbon(Color(red: 1, green: 0.9, blue: 0.2), offset: 5.5, width: 2, blur: 1.5, opacity: 0.7)
+                ribbon(Color(red: 1, green: 0.3, blue: 0.15), offset: 4, width: 1.2, blur: 1.5, opacity: 0.25)
+                ribbon(.white, offset: 2, width: 2.5, blur: 1.5, opacity: 0.8)
                 ribbon(.white, offset: 0, width: 4, blur: 3, opacity: 0.6)
                 ribbon(.white, offset: 0, width: 1.5, blur: 0.7, opacity: 0.95)
             }
