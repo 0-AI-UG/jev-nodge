@@ -10,7 +10,5 @@ The project also draws architectural ideas from these MIT-licensed projects:
 - [`kevinbadi/jev-voice`](https://github.com/kevinbadi/jev-voice)
 - [`browser-use/jev-ultrafast`](https://github.com/browser-use/jev-ultrafast)
 - [`jcpsimmons/jev-macos-loop`](https://github.com/jcpsimmons/jev-macos-loop)
-- [`margox/SwiftGlow`](https://github.com/margox/SwiftGlow), whose MIT-licensed
-  inside-glow rendering approach informed the setup surface effect
 
 No source code from the latter three projects is currently vendored.

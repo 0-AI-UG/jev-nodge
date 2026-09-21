@@ -34,7 +34,7 @@ final class Controller: NSObject {
     private let dumpSignal = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
 
     func start() {
-        panel = NodgePanel(contentRect: NSRect(x: 0, y: 0, width: 390, height: 280),
+        panel = NodgePanel(contentRect: NSRect(x: 0, y: 0, width: 390, height: 240),
                            styleMask: [.borderless], backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -46,7 +46,7 @@ final class Controller: NSObject {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.contentView = NSHostingView(rootView: HUDView(model: hud))
         if let screen = NSScreen.main?.frame {
-            panel.setFrameOrigin(NSPoint(x: screen.midX - 195, y: screen.maxY - 280))
+            panel.setFrameOrigin(NSPoint(x: screen.midX - 195, y: screen.maxY - 240))
         }
         panel.orderFrontRegardless()
 
@@ -108,7 +108,7 @@ final class Controller: NSObject {
         case .hidden: size = NSSize(width: 390, height: 12)
         case .pill: size = NSSize(width: 410, height: 84)
         case .card: size = NSSize(width: 520, height: 218)
-        case .setup: size = NSSize(width: 390, height: 280)
+        case .setup: size = NSSize(width: 390, height: 240)
         }
         guard let screen = panel.screen ?? NSScreen.main else { return }
         let next = NSRect(

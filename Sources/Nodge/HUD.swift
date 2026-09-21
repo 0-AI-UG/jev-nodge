@@ -172,7 +172,7 @@ private struct SetupView: View {
             Text(stepTitle)
                 .font(.system(size: 15.5, weight: .semibold, design: .rounded))
                 .multilineTextAlignment(.center)
-                .padding(.top, 29)
+                .padding(.top, 22)
 
             Text(stepSubtitle)
                 .font(.system(size: 10))
@@ -191,14 +191,16 @@ private struct SetupView: View {
                         removal: .move(edge: .leading).combined(with: .opacity)
                     ))
             }
-            .frame(height: 70)
+            .frame(height: 56)
             .clipped()
 
-            Text(model.setupError)
-                .font(.system(size: 9.5, weight: .medium))
-                .foregroundStyle(.white.opacity(0.65))
-                .frame(height: 12)
-                .opacity(model.setupError.isEmpty ? 0 : 1)
+            if !model.setupError.isEmpty {
+                Text(model.setupError)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.65))
+                    .frame(height: 11)
+                    .transition(.opacity)
+            }
 
             HStack(spacing: 12) {
                 if model.setupStep > 0 {
@@ -208,12 +210,12 @@ private struct SetupView: View {
                 Button(model.setupStep == 2 ? "Start" : "Continue", action: model.advanceSetup)
                     .buttonStyle(PrimarySetupButtonStyle())
             }
-            .padding(.top, 4)
-            .padding(.bottom, 10)
+            .padding(.top, 2)
+            .padding(.bottom, 8)
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 22)
-        .frame(width: 330, height: 220)
+        .frame(width: 330, height: 180)
         .animatedNodgeSurface(bottomRadius: 18)
         .animation(.spring(response: 0.46, dampingFraction: 0.78), value: model.setupStep)
     }
@@ -247,7 +249,7 @@ private struct SetupView: View {
             }
             .font(.system(size: 13.5, weight: .medium, design: .rounded))
             .padding(.horizontal, 14)
-            .frame(height: 34)
+            .frame(height: 32)
             .setupField()
         case 1:
             VStack(spacing: 6) {
@@ -255,7 +257,7 @@ private struct SetupView: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: 11, design: .monospaced))
                     .padding(.horizontal, 14)
-                    .frame(height: 34)
+                    .frame(height: 32)
                     .setupField()
                 Link("Create an OpenRouter key", destination: URL(string: "https://openrouter.ai/keys")!)
                     .font(.system(size: 9.5, weight: .medium))
@@ -304,7 +306,7 @@ private struct PrimarySetupButtonStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 10.5, weight: .semibold))
             .frame(minWidth: 86)
-            .frame(height: 30)
+            .frame(height: 28)
             .background(.white.opacity(configuration.isPressed ? 0.76 : 1), in: Capsule())
             .foregroundStyle(.black)
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
@@ -317,7 +319,7 @@ private struct SecondarySetupButtonStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 10.5, weight: .semibold))
             .frame(minWidth: 60)
-            .frame(height: 30)
+            .frame(height: 28)
             .background(.white.opacity(configuration.isPressed ? 0.13 : 0.07), in: Capsule())
             .foregroundStyle(.white.opacity(0.72))
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
@@ -405,22 +407,40 @@ private extension View {
         return background {
             shape.fill(.black)
         }
-        .overlay {
+        .overlay(alignment: .bottom) {
             TimelineView(.animation(minimumInterval: 1 / 30)) { timeline in
-                let phase = timeline.date.timeIntervalSinceReferenceDate * 20
-                let gradient = AngularGradient(
-                    colors: [.blue, .purple, .pink, .orange, .cyan, .blue],
-                    center: .center,
-                    startAngle: .degrees(phase),
-                    endAngle: .degrees(phase + 360)
+                let phase = timeline.date.timeIntervalSinceReferenceDate
+                let drift = 10 * sin(phase * 0.55)
+                let glow = LinearGradient(
+                    colors: [
+                        .clear,
+                        .cyan.opacity(0.45),
+                        .blue.opacity(0.75),
+                        .purple.opacity(0.8),
+                        .white,
+                        .pink.opacity(0.8),
+                        .orange.opacity(0.42),
+                        .clear,
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
                 )
-                ZStack {
-                    shape.strokeBorder(gradient, lineWidth: 12)
-                        .blur(radius: 7)
-                        .opacity(0.58)
-                    shape.strokeBorder(gradient, lineWidth: 1.5)
-                        .opacity(0.9)
+                ZStack(alignment: .bottom) {
+                    glow
+                        .frame(width: 235, height: 8)
+                        .blur(radius: 10)
+                        .opacity(0.68 + 0.1 * sin(phase * 0.8))
+                        .offset(x: drift, y: 3)
+                    glow
+                        .frame(width: 220, height: 1.5)
+                        .offset(x: drift * 0.5, y: -0.5)
+                    Capsule()
+                        .fill(.white.opacity(0.9))
+                        .frame(width: 38, height: 1.5)
+                        .blur(radius: 0.4)
+                        .offset(y: -0.5)
                 }
+                .frame(maxWidth: .infinity, maxHeight: 36, alignment: .bottom)
                 .clipShape(shape)
                 .allowsHitTesting(false)
             }
