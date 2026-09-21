@@ -358,6 +358,59 @@ private struct ConfidenceDots: View {
     }
 }
 
+/// Overlapping spectral ribbons converge into one white beam, with a soft upward bloom.
+private struct PrismaticGlow: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
+            let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
+            Canvas { context, size in
+                let breath = 0.92 + 0.08 * sin(time * 0.9)
+                let center = size.width * (0.5 + 0.045 * sin(time * 0.43))
+                let span = size.width * (0.42 + 0.025 * sin(time * 0.67))
+
+                func ribbon(_ color: Color, offset: Double, width: Double, blur: Double, opacity: Double) {
+                    var path = Path()
+                    for index in 0...96 {
+                        let u = Double(index) / 96
+                        let x = center + (u * 2 - 1) * span
+                        let envelope = pow(sin(u * .pi), 2)
+                        let wave = 1.8 + 1.2 * sin(u * .pi * 2 + time * 0.7)
+                        let y = size.height - 1.8 - envelope * (wave + offset)
+                        let point = CGPoint(x: x, y: y)
+                        if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+                    }
+                    var layer = context
+                    layer.addFilter(.blur(radius: blur))
+                    layer.opacity = opacity * breath
+                    layer.stroke(path, with: .linearGradient(
+                        Gradient(stops: [
+                            .init(color: .clear, location: 0),
+                            .init(color: color.opacity(0.35), location: 0.18),
+                            .init(color: color, location: 0.5),
+                            .init(color: color.opacity(0.35), location: 0.82),
+                            .init(color: .clear, location: 1),
+                        ]),
+                        startPoint: CGPoint(x: center - span, y: 0),
+                        endPoint: CGPoint(x: center + span, y: 0)
+                    ), style: StrokeStyle(lineWidth: width, lineCap: .round))
+                }
+
+                context.blendMode = .plusLighter
+                ribbon(.white, offset: 2, width: 10, blur: 9, opacity: 0.3)
+                ribbon(Color(red: 0.55, green: 0.7, blue: 1), offset: 3.8, width: 3, blur: 3, opacity: 0.55)
+                ribbon(Color(red: 1, green: 0.55, blue: 0.72), offset: 1.7, width: 2, blur: 2.2, opacity: 0.4)
+                ribbon(Color(red: 0.6, green: 1, blue: 1), offset: -0.5, width: 2, blur: 1.8, opacity: 0.45)
+                ribbon(.white, offset: 0.6, width: 2.5, blur: 1.2, opacity: 0.85)
+            }
+        }
+        .frame(height: 34)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 private extension View {
     func setupField() -> some View {
         background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
@@ -408,42 +461,9 @@ private extension View {
             shape.fill(.black)
         }
         .overlay(alignment: .bottom) {
-            TimelineView(.animation(minimumInterval: 1 / 30)) { timeline in
-                let phase = timeline.date.timeIntervalSinceReferenceDate
-                let drift = 10 * sin(phase * 0.55)
-                let glow = LinearGradient(
-                    colors: [
-                        .clear,
-                        .cyan.opacity(0.45),
-                        .blue.opacity(0.75),
-                        .purple.opacity(0.8),
-                        .white,
-                        .pink.opacity(0.8),
-                        .orange.opacity(0.42),
-                        .clear,
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-                ZStack(alignment: .bottom) {
-                    glow
-                        .frame(width: 235, height: 8)
-                        .blur(radius: 10)
-                        .opacity(0.68 + 0.1 * sin(phase * 0.8))
-                        .offset(x: drift, y: 3)
-                    glow
-                        .frame(width: 220, height: 1.5)
-                        .offset(x: drift * 0.5, y: -0.5)
-                    Capsule()
-                        .fill(.white.opacity(0.9))
-                        .frame(width: 38, height: 1.5)
-                        .blur(radius: 0.4)
-                        .offset(y: -0.5)
-                }
-                .frame(maxWidth: .infinity, maxHeight: 36, alignment: .bottom)
+            PrismaticGlow()
+                .frame(maxHeight: .infinity, alignment: .bottom)
                 .clipShape(shape)
-                .allowsHitTesting(false)
-            }
         }
         .shadow(color: .black.opacity(0.6), radius: 18, y: 10)
     }
