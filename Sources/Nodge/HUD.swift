@@ -366,7 +366,7 @@ private struct PrismaticGlow: View {
         TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
             let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
             Canvas { context, size in
-                let breath = 0.85 + 0.15 * sin(time * 1.6)
+                let breath = 0.95 + 0.05 * sin(time * 1.6)
                 let center = size.width * (0.5 + 0.065 * sin(time * 0.9))
                 let span = size.width * (0.40 + 0.035 * sin(time * 1.2))
 
@@ -376,8 +376,8 @@ private struct PrismaticGlow: View {
                         let u = Double(index) / 96
                         let x = center + (u * 2 - 1) * span
                         let envelope = pow(sin(u * .pi), 2)
-                        let flare = sin(u * .pi * 4 - time * 2.2 + offset * 0.17)
-                        let wave = 1.2 + max(0, offset) * 0.65 * flare
+                        let flare = sin(u * .pi * 3 - time * 1.8)
+                        let wave = 1.2 + max(0, offset) * 0.2 * flare
                         let y = size.height - 1.8 - envelope * (wave + offset)
                         let point = CGPoint(x: x, y: y)
                         if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
@@ -388,9 +388,9 @@ private struct PrismaticGlow: View {
                     layer.stroke(path, with: .linearGradient(
                         Gradient(stops: [
                             .init(color: .clear, location: 0),
-                            .init(color: color.opacity(0.35), location: 0.18),
+                            .init(color: color.opacity(0.85), location: 0.18),
                             .init(color: color, location: 0.5),
-                            .init(color: color.opacity(0.35), location: 0.82),
+                            .init(color: color.opacity(0.85), location: 0.82),
                             .init(color: .clear, location: 1),
                         ]),
                         startPoint: CGPoint(x: center - span, y: 0),
@@ -398,16 +398,23 @@ private struct PrismaticGlow: View {
                     ), style: StrokeStyle(lineWidth: width, lineCap: .round))
                 }
 
-                // Screen blending retains saturation as the colored plumes overlap.
-                context.blendMode = .screen
-                ribbon(Color(red: 0.08, green: 0.5, blue: 1), offset: 14, width: 10, blur: 6, opacity: 0.55)
-                ribbon(Color(red: 0.3, green: 0.18, blue: 1), offset: 15, width: 2, blur: 2, opacity: 0.25)
-                ribbon(Color(red: 0.02, green: 0.9, blue: 1), offset: 10, width: 5, blur: 2.5, opacity: 0.9)
-                ribbon(Color(red: 0.25, green: 1, blue: 0.65), offset: 7.5, width: 2, blur: 1.8, opacity: 0.55)
-                ribbon(Color(red: 1, green: 0.9, blue: 0.2), offset: 5.5, width: 2, blur: 1.5, opacity: 0.7)
-                ribbon(Color(red: 1, green: 0.3, blue: 0.15), offset: 4, width: 1.2, blur: 1.5, opacity: 0.25)
-                ribbon(.white, offset: 2, width: 2.5, blur: 1.5, opacity: 0.8)
-                ribbon(.white, offset: 0, width: 4, blur: 3, opacity: 0.6)
+                // A shared curve keeps the spectrum ordered as it moves. Separate
+                // narrow cores preserve color; broad low-opacity copies provide bloom.
+                let spectrum: [(Color, Double)] = [
+                    (Color(red: 1, green: 0.02, blue: 0.16), 21),
+                    (Color(red: 1, green: 0.42, blue: 0), 17.5),
+                    (Color(red: 1, green: 0.95, blue: 0), 14),
+                    (Color(red: 0.12, green: 1, blue: 0.22), 10.5),
+                    (Color(red: 0, green: 0.95, blue: 1), 7),
+                    (Color(red: 0.06, green: 0.16, blue: 1), 3.5),
+                ]
+                for (color, offset) in spectrum {
+                    ribbon(color, offset: offset, width: 6, blur: 5, opacity: 0.32)
+                }
+                for (color, offset) in spectrum {
+                    ribbon(color, offset: offset, width: 3.6, blur: 0.9, opacity: 1)
+                }
+                ribbon(.white, offset: 0, width: 3, blur: 2, opacity: 0.35)
                 ribbon(.white, offset: 0, width: 1.5, blur: 0.7, opacity: 0.95)
             }
         }
