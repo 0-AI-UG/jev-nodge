@@ -261,17 +261,12 @@ private struct SetupView: View {
             .frame(height: 32)
             .setupField()
         case 1:
-            VStack(spacing: 6) {
-                SecureField("sk-or-v1-…", text: $model.openRouterKey)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 11, design: .monospaced))
-                    .padding(.horizontal, 14)
-                    .frame(height: 32)
-                    .setupField()
-                Link("Create an OpenRouter key", destination: URL(string: "https://openrouter.ai/keys")!)
-                    .font(.system(size: 9.5, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.55))
-            }
+            SecureField("sk-or-v1-…", text: $model.openRouterKey)
+                .textFieldStyle(.plain)
+                .font(.system(size: 11, design: .monospaced))
+                .padding(.horizontal, 14)
+                .frame(height: 32)
+                .setupField()
         default:
             VStack(spacing: 6) {
                 Picker("Voice", selection: $settings.voiceProvider) {
