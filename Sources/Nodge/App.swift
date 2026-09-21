@@ -6,6 +6,23 @@ import SwiftUI
 final class NodgePanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // This accessory app has no main Edit menu. Forward editing shortcuts to
+        // the field editor, including the secure editor used for API keys.
+        let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        if modifiers == .command, let editor = firstResponder as? NSTextView, editor.isEditable {
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "v": editor.paste(nil)
+            case "a": editor.selectAll(nil)
+            case "c": editor.copy(nil)
+            case "x": editor.cut(nil)
+            default: return super.performKeyEquivalent(with: event)
+            }
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 }
 
 /// Pipeline: always listening → utterance → Jev scores the options → decision → OS action.
