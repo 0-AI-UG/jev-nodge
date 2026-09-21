@@ -93,8 +93,8 @@ struct HUDView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             case .setup:
                 SetupView(model: model)
-                    .padding(.horizontal, 35)
-                    .padding(.bottom, 30)
+                    .padding(.horizontal, 40)
+                    .padding(.bottom, 34)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
             Spacer(minLength: 0)
@@ -170,18 +170,18 @@ private struct SetupView: View {
     var body: some View {
         VStack(spacing: 0) {
             Text(stepTitle)
-                .font(.system(size: 21, weight: .semibold, design: .rounded))
+                .font(.system(size: 17, weight: .semibold, design: .rounded))
                 .multilineTextAlignment(.center)
-                .padding(.top, 50)
+                .padding(.top, 40)
 
             Text(stepSubtitle)
-                .font(.system(size: 12.5))
+                .font(.system(size: 11))
                 .foregroundStyle(.white.opacity(0.52))
                 .multilineTextAlignment(.center)
-                .padding(.top, 7)
+                .padding(.top, 5)
 
             StepDots(current: model.setupStep)
-                .padding(.top, 14)
+                .padding(.top, 10)
 
             ZStack {
                 stepContent
@@ -191,13 +191,13 @@ private struct SetupView: View {
                         removal: .move(edge: .leading).combined(with: .opacity)
                     ))
             }
-            .frame(height: 132)
+            .frame(height: 96)
             .clipped()
 
             Text(model.setupError)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(.orange)
-                .frame(height: 20)
+                .frame(height: 16)
                 .opacity(model.setupError.isEmpty ? 0 : 1)
 
             HStack(spacing: 12) {
@@ -208,13 +208,13 @@ private struct SetupView: View {
                 Button(model.setupStep == 2 ? "Start Nodge" : "Continue", action: model.advanceSetup)
                     .buttonStyle(PrimarySetupButtonStyle())
             }
-            .padding(.top, 12)
-            .padding(.bottom, 22)
+            .padding(.top, 7)
+            .padding(.bottom, 15)
         }
         .foregroundStyle(.white)
-        .padding(.horizontal, 34)
-        .frame(width: 430, height: 408)
-        .animatedNodgeSurface(bottomRadius: 14)
+        .padding(.horizontal, 26)
+        .frame(width: 350, height: 300)
+        .animatedNodgeSurface(bottomRadius: 22)
         .animation(.spring(response: 0.46, dampingFraction: 0.78), value: model.setupStep)
     }
 
@@ -243,26 +243,26 @@ private struct SetupView: View {
                     .foregroundStyle(.white.opacity(0.42))
                 TextField("Nodge", text: $settings.wakePhrase)
                     .textFieldStyle(.plain)
-                    .frame(maxWidth: 210)
+                    .frame(maxWidth: 170)
             }
-            .font(.system(size: 18, weight: .medium, design: .rounded))
-            .padding(.horizontal, 20)
-            .frame(height: 52)
+            .font(.system(size: 15, weight: .medium, design: .rounded))
+            .padding(.horizontal, 16)
+            .frame(height: 42)
             .setupField()
         case 1:
-            VStack(spacing: 14) {
+            VStack(spacing: 9) {
                 SecureField("sk-or-v1-…", text: $model.openRouterKey)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 15, design: .monospaced))
-                    .padding(.horizontal, 20)
-                    .frame(height: 52)
+                    .font(.system(size: 12.5, design: .monospaced))
+                    .padding(.horizontal, 16)
+                    .frame(height: 42)
                     .setupField()
                 Link("Create an OpenRouter key", destination: URL(string: "https://openrouter.ai/keys")!)
-                    .font(.system(size: 12.5, weight: .medium))
+                    .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(.white.opacity(0.55))
             }
         default:
-            VStack(spacing: 13) {
+            VStack(spacing: 8) {
                 Picker("Voice", selection: $settings.voiceProvider) {
                     ForEach(AppSettings.VoiceProvider.allCases) { provider in
                         Text(provider.rawValue).tag(provider)
@@ -272,7 +272,7 @@ private struct SetupView: View {
                 .pickerStyle(.segmented)
 
                 if settings.voiceProvider == .elevenLabs {
-                    HStack(spacing: 10) {
+                    HStack(spacing: 8) {
                         SecureField("ElevenLabs key", text: $model.elevenLabsKey)
                         TextField("Voice ID", text: $settings.elevenLabsVoiceID)
                     }
@@ -281,14 +281,14 @@ private struct SetupView: View {
                 }
 
                 DisclosureGroup("Model settings") {
-                    VStack(spacing: 8) {
+                    VStack(spacing: 6) {
                         TextField("Jev model", text: $settings.jevModel)
                         TextField("Answer model", text: $settings.responseModel)
                     }
                     .textFieldStyle(.roundedBorder)
-                    .padding(.top, 8)
+                    .padding(.top, 6)
                 }
-                .font(.system(size: 12.5, weight: .medium))
+                .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(.white.opacity(0.58))
             }
         }
@@ -303,7 +303,7 @@ private struct StepDots: View {
             ForEach(0..<3, id: \.self) { index in
                 Capsule()
                     .fill(index == current ? .white : .white.opacity(0.18))
-                    .frame(width: index == current ? 20 : 6, height: 6)
+                    .frame(width: index == current ? 16 : 5, height: 5)
             }
         }
     }
@@ -312,9 +312,9 @@ private struct StepDots: View {
 private struct PrimarySetupButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 13.5, weight: .semibold))
-            .frame(minWidth: 116)
-            .frame(height: 40)
+            .font(.system(size: 11.5, weight: .semibold))
+            .frame(minWidth: 98)
+            .frame(height: 34)
             .background(.white.opacity(configuration.isPressed ? 0.76 : 1), in: Capsule())
             .foregroundStyle(.black)
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
@@ -325,9 +325,9 @@ private struct PrimarySetupButtonStyle: ButtonStyle {
 private struct SecondarySetupButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 13.5, weight: .semibold))
-            .frame(minWidth: 82)
-            .frame(height: 40)
+            .font(.system(size: 11.5, weight: .semibold))
+            .frame(minWidth: 68)
+            .frame(height: 34)
             .background(.white.opacity(configuration.isPressed ? 0.13 : 0.07), in: Capsule())
             .foregroundStyle(.white.opacity(0.72))
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
@@ -342,26 +342,26 @@ private struct AnimatedSetupBackground: View {
                 ZStack {
                     Color.black
                     RadialGradient(
-                        colors: [.green.opacity(0.07), .clear],
+                        colors: [.green.opacity(0.11), .clear],
                         center: .center,
                         startRadius: 0,
-                        endRadius: 150
+                        endRadius: 120
                     )
-                    .frame(width: 300, height: 220)
+                    .frame(width: 240, height: 170)
                     .offset(
-                        x: 90 * sin(phase * 0.22),
-                        y: proxy.size.height * 0.28 + 22 * cos(phase * 0.19)
+                        x: 65 * sin(phase * 0.22),
+                        y: proxy.size.height * 0.25 + 17 * cos(phase * 0.19)
                     )
                     RadialGradient(
                         colors: [.white.opacity(0.035), .clear],
                         center: .center,
                         startRadius: 0,
-                        endRadius: 130
+                        endRadius: 105
                     )
-                    .frame(width: 260, height: 190)
+                    .frame(width: 210, height: 150)
                     .offset(
-                        x: -100 * cos(phase * 0.17),
-                        y: proxy.size.height * 0.4 + 18 * sin(phase * 0.2)
+                        x: -70 * cos(phase * 0.17),
+                        y: proxy.size.height * 0.36 + 14 * sin(phase * 0.2)
                     )
                 }
             }
@@ -454,6 +454,7 @@ private extension View {
         .overlay {
             shape.strokeBorder(.white.opacity(0.06), lineWidth: 0.6)
         }
-        .shadow(color: .black.opacity(0.48), radius: 18, y: 10)
+        .shadow(color: .green.opacity(0.18), radius: 24, y: 8)
+        .shadow(color: .black.opacity(0.6), radius: 18, y: 10)
     }
 }

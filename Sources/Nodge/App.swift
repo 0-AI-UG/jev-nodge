@@ -34,7 +34,7 @@ final class Controller: NSObject {
     private let dumpSignal = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
 
     func start() {
-        panel = NodgePanel(contentRect: NSRect(x: 0, y: 0, width: 500, height: 470),
+        panel = NodgePanel(contentRect: NSRect(x: 0, y: 0, width: 430, height: 370),
                            styleMask: [.borderless], backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -46,12 +46,12 @@ final class Controller: NSObject {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.contentView = NSHostingView(rootView: HUDView(model: hud))
         if let screen = NSScreen.main?.frame {
-            panel.setFrameOrigin(NSPoint(x: screen.midX - 250, y: screen.maxY - 470))
+            panel.setFrameOrigin(NSPoint(x: screen.midX - 215, y: screen.maxY - 370))
         }
         panel.orderFrontRegardless()
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: "Nodge")
+        statusItem.button?.image = menuBarIcon(paused: false)
         let menu = NSMenu()
         let pause = menu.addItem(withTitle: "Pause listening", action: #selector(togglePause(_:)), keyEquivalent: "p")
         pause.target = self
@@ -108,10 +108,10 @@ final class Controller: NSObject {
         case .hidden: height = 12
         case .pill: height = 84
         case .card: height = 218
-        case .setup: height = 470
+        case .setup: height = 370
         }
         guard let screen = panel.screen ?? NSScreen.main else { return }
-        let next = NSRect(x: screen.frame.midX - 250, y: screen.frame.maxY - height, width: 500, height: height)
+        let next = NSRect(x: screen.frame.midX - 215, y: screen.frame.maxY - height, width: 430, height: height)
         panel.ignoresMouseEvents = shape != .setup
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.38
@@ -238,10 +238,17 @@ final class Controller: NSObject {
 
     private func refreshPauseUI() {
         statusItem.menu?.items.first?.title = listener.enabled ? "Pause listening" : "Resume listening"
-        statusItem.button?.image = NSImage(
-            systemSymbolName: listener.enabled ? "waveform.circle.fill" : "waveform.circle",
-            accessibilityDescription: listener.enabled ? "Nodge listening" : "Nodge paused"
-        )
+        statusItem.button?.image = menuBarIcon(paused: !listener.enabled)
+    }
+
+    private func menuBarIcon(paused: Bool) -> NSImage? {
+        let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
+        let image = NSImage(
+            systemSymbolName: paused ? "waveform.circle" : "waveform.circle.fill",
+            accessibilityDescription: paused ? "Nodge paused" : "Nodge listening"
+        )?.withSymbolConfiguration(configuration)
+        image?.isTemplate = true
+        return image
     }
 
     @objc private func togglePause(_ item: NSMenuItem) {
