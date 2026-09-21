@@ -34,7 +34,7 @@ final class Controller: NSObject {
     private let dumpSignal = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
 
     func start() {
-        panel = NodgePanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 620),
+        panel = NodgePanel(contentRect: NSRect(x: 0, y: 0, width: 500, height: 470),
                            styleMask: [.borderless], backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -46,7 +46,7 @@ final class Controller: NSObject {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.contentView = NSHostingView(rootView: HUDView(model: hud))
         if let screen = NSScreen.main?.frame {
-            panel.setFrameOrigin(NSPoint(x: screen.midX - 280, y: screen.maxY - 620))
+            panel.setFrameOrigin(NSPoint(x: screen.midX - 250, y: screen.maxY - 470))
         }
         panel.orderFrontRegardless()
 
@@ -106,12 +106,12 @@ final class Controller: NSObject {
         let height: CGFloat
         switch shape {
         case .hidden: height = 12
-        case .pill: height = 54
-        case .card: height = 190
-        case .setup: height = 520
+        case .pill: height = 84
+        case .card: height = 218
+        case .setup: height = 470
         }
         guard let screen = panel.screen ?? NSScreen.main else { return }
-        let next = NSRect(x: screen.frame.midX - 280, y: screen.frame.maxY - height, width: 560, height: height)
+        let next = NSRect(x: screen.frame.midX - 250, y: screen.frame.maxY - height, width: 500, height: height)
         panel.ignoresMouseEvents = shape != .setup
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.38

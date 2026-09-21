@@ -11,6 +11,7 @@ final class HUDModel: ObservableObject {
     @Published var probs: [Double] = []
     @Published var pulse = false
     @Published var setupError = ""
+    @Published var setupStep = 0
     @Published var openRouterKey = ""
     @Published var elevenLabsKey = ""
     var onSetupComplete: (() -> Void)?
@@ -46,6 +47,32 @@ final class HUDModel: ObservableObject {
             setupError = error.localizedDescription
         }
     }
+
+    func advanceSetup() {
+        setupError = ""
+        switch setupStep {
+        case 0:
+            guard !AppSettings.shared.wakePhrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                setupError = "Choose a wake name"
+                return
+            }
+            withAnimation(.spring(response: 0.46, dampingFraction: 0.78)) { setupStep = 1 }
+        case 1:
+            guard !openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                setupError = "Add an OpenRouter API key"
+                return
+            }
+            withAnimation(.spring(response: 0.46, dampingFraction: 0.78)) { setupStep = 2 }
+        default:
+            finishSetup()
+        }
+    }
+
+    func retreatSetup() {
+        guard setupStep > 0 else { return }
+        setupError = ""
+        withAnimation(.spring(response: 0.46, dampingFraction: 0.78)) { setupStep -= 1 }
+    }
 }
 
 struct HUDView: View {
@@ -58,12 +85,16 @@ struct HUDView: View {
                 Color.clear.frame(width: 210, height: 12)
             case .pill:
                 CompactView(model: model)
+                    .padding(.bottom, 28)
                     .transition(.move(edge: .top).combined(with: .opacity))
             case .card:
                 ResultView(model: model)
+                    .padding(.bottom, 28)
                     .transition(.move(edge: .top).combined(with: .opacity))
             case .setup:
                 SetupView(model: model)
+                    .padding(.horizontal, 35)
+                    .padding(.bottom, 30)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
             Spacer(minLength: 0)
@@ -137,46 +168,107 @@ private struct SetupView: View {
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Set up Nodge")
-                .font(.system(size: 20, weight: .semibold, design: .rounded))
+        VStack(spacing: 0) {
+            Text(stepTitle)
+                .font(.system(size: 21, weight: .semibold, design: .rounded))
+                .multilineTextAlignment(.center)
+                .padding(.top, 50)
 
-            VStack(spacing: 12) {
-                FieldRow(title: "OpenRouter key") {
-                    SecureField("sk-or-v1-…", text: $model.openRouterKey)
-                        .textFieldStyle(.plain)
-                }
-                Divider().overlay(.white.opacity(0.08))
-                FieldRow(title: "Say “Hey …”") {
-                    TextField("Nodge, Mark, Jev…", text: $settings.wakePhrase)
-                        .textFieldStyle(.plain)
-                }
+            Text(stepSubtitle)
+                .font(.system(size: 12.5))
+                .foregroundStyle(.white.opacity(0.52))
+                .multilineTextAlignment(.center)
+                .padding(.top, 7)
+
+            StepDots(current: model.setupStep)
+                .padding(.top, 14)
+
+            ZStack {
+                stepContent
+                    .id(model.setupStep)
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .trailing).combined(with: .opacity),
+                        removal: .move(edge: .leading).combined(with: .opacity)
+                    ))
             }
-            .padding(15)
-            .background(.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .frame(height: 132)
+            .clipped()
 
-            VStack(alignment: .leading, spacing: 10) {
+            Text(model.setupError)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.orange)
+                .frame(height: 20)
+                .opacity(model.setupError.isEmpty ? 0 : 1)
+
+            HStack(spacing: 12) {
+                if model.setupStep > 0 {
+                    Button("Back", action: model.retreatSetup)
+                        .buttonStyle(SecondarySetupButtonStyle())
+                }
+                Button(model.setupStep == 2 ? "Start Nodge" : "Continue", action: model.advanceSetup)
+                    .buttonStyle(PrimarySetupButtonStyle())
+            }
+            .padding(.top, 12)
+            .padding(.bottom, 22)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 34)
+        .frame(width: 430, height: 408)
+        .animatedNodgeSurface(bottomRadius: 14)
+        .animation(.spring(response: 0.46, dampingFraction: 0.78), value: model.setupStep)
+    }
+
+    private var stepTitle: String {
+        switch model.setupStep {
+        case 0: return "What should wake Nodge?"
+        case 1: return "Connect OpenRouter"
+        default: return "Choose a voice"
+        }
+    }
+
+    private var stepSubtitle: String {
+        switch model.setupStep {
+        case 0: return "Pick a short name that feels natural to say."
+        case 1: return "Your key stays in the macOS Keychain."
+        default: return "Nodge will speak AI answers using this voice."
+        }
+    }
+
+    @ViewBuilder
+    private var stepContent: some View {
+        switch model.setupStep {
+        case 0:
+            HStack(spacing: 10) {
+                Text("Hey")
+                    .foregroundStyle(.white.opacity(0.42))
+                TextField("Nodge", text: $settings.wakePhrase)
+                    .textFieldStyle(.plain)
+                    .frame(maxWidth: 210)
+            }
+            .font(.system(size: 18, weight: .medium, design: .rounded))
+            .padding(.horizontal, 20)
+            .frame(height: 52)
+            .setupField()
+        case 1:
+            VStack(spacing: 14) {
+                SecureField("sk-or-v1-…", text: $model.openRouterKey)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 15, design: .monospaced))
+                    .padding(.horizontal, 20)
+                    .frame(height: 52)
+                    .setupField()
+                Link("Create an OpenRouter key", destination: URL(string: "https://openrouter.ai/keys")!)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.55))
+            }
+        default:
+            VStack(spacing: 13) {
                 Picker("Voice", selection: $settings.voiceProvider) {
                     ForEach(AppSettings.VoiceProvider.allCases) { provider in
                         Text(provider.rawValue).tag(provider)
                     }
                 }
-
-                DisclosureGroup("Advanced") {
-                    VStack(spacing: 10) {
-                        FieldRow(title: "Jev model") {
-                            TextField("~typesafe/jev-latest", text: $settings.jevModel)
-                                .textFieldStyle(.plain)
-                        }
-                        FieldRow(title: "Answer model") {
-                            TextField("~openai/gpt-latest", text: $settings.responseModel)
-                                .textFieldStyle(.plain)
-                        }
-                    }
-                    .padding(.top, 10)
-                }
-                .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(.white.opacity(0.62))
+                .labelsHidden()
                 .pickerStyle(.segmented)
 
                 if settings.voiceProvider == .elevenLabs {
@@ -185,52 +277,94 @@ private struct SetupView: View {
                         TextField("Voice ID", text: $settings.elevenLabsVoiceID)
                     }
                     .textFieldStyle(.roundedBorder)
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
-            }
 
-            if !model.setupError.isEmpty {
-                Label(model.setupError, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.orange)
-            }
-
-            HStack {
-                Link("Create an OpenRouter key", destination: URL(string: "https://openrouter.ai/keys")!)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.55))
-                Spacer()
-                Button(action: model.finishSetup) {
-                    HStack(spacing: 7) {
-                        Text("Start Nodge")
-                        Image(systemName: "arrow.right")
+                DisclosureGroup("Model settings") {
+                    VStack(spacing: 8) {
+                        TextField("Jev model", text: $settings.jevModel)
+                        TextField("Answer model", text: $settings.responseModel)
                     }
-                    .font(.system(size: 13, weight: .semibold))
-                    .padding(.horizontal, 16)
-                    .frame(height: 36)
-                    .background(.white, in: Capsule())
-                    .foregroundStyle(.black)
+                    .textFieldStyle(.roundedBorder)
+                    .padding(.top, 8)
                 }
-                .buttonStyle(.plain)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(.white.opacity(0.58))
             }
         }
-        .foregroundStyle(.white)
-        .padding(24)
-        .frame(width: 520)
-        .nodgeSurface(bottomRadius: 20)
     }
 }
 
-private struct FieldRow<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: Content
+private struct StepDots: View {
+    let current: Int
 
     var body: some View {
-        HStack(spacing: 12) {
-            Text(title)
-                .font(.system(size: 12.5, weight: .medium))
-                .frame(width: 112, alignment: .leading)
-            content
-                .font(.system(size: 12.5, design: .monospaced))
+        HStack(spacing: 6) {
+            ForEach(0..<3, id: \.self) { index in
+                Capsule()
+                    .fill(index == current ? .white : .white.opacity(0.18))
+                    .frame(width: index == current ? 20 : 6, height: 6)
+            }
+        }
+    }
+}
+
+private struct PrimarySetupButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13.5, weight: .semibold))
+            .frame(minWidth: 116)
+            .frame(height: 40)
+            .background(.white.opacity(configuration.isPressed ? 0.76 : 1), in: Capsule())
+            .foregroundStyle(.black)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.spring(response: 0.22, dampingFraction: 0.72), value: configuration.isPressed)
+    }
+}
+
+private struct SecondarySetupButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13.5, weight: .semibold))
+            .frame(minWidth: 82)
+            .frame(height: 40)
+            .background(.white.opacity(configuration.isPressed ? 0.13 : 0.07), in: Capsule())
+            .foregroundStyle(.white.opacity(0.72))
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+    }
+}
+
+private struct AnimatedSetupBackground: View {
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 24)) { timeline in
+            GeometryReader { proxy in
+                let phase = timeline.date.timeIntervalSinceReferenceDate
+                ZStack {
+                    Color.black
+                    RadialGradient(
+                        colors: [.green.opacity(0.07), .clear],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 150
+                    )
+                    .frame(width: 300, height: 220)
+                    .offset(
+                        x: 90 * sin(phase * 0.22),
+                        y: proxy.size.height * 0.28 + 22 * cos(phase * 0.19)
+                    )
+                    RadialGradient(
+                        colors: [.white.opacity(0.035), .clear],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 130
+                    )
+                    .frame(width: 260, height: 190)
+                    .offset(
+                        x: -100 * cos(phase * 0.17),
+                        y: proxy.size.height * 0.4 + 18 * sin(phase * 0.2)
+                    )
+                }
+            }
         }
     }
 }
@@ -268,6 +402,14 @@ private struct ConfidenceDots: View {
 }
 
 private extension View {
+    func setupField() -> some View {
+        background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 15, style: .continuous)
+                    .strokeBorder(.white.opacity(0.09), lineWidth: 0.7)
+            }
+    }
+
     func nodgeSurface(bottomRadius: CGFloat) -> some View {
         let shape = UnevenRoundedRectangle(
             cornerRadii: .init(
@@ -293,5 +435,25 @@ private extension View {
             shape.strokeBorder(.white.opacity(0.07), lineWidth: 0.6)
         }
         .shadow(color: .black.opacity(0.45), radius: 18, y: 10)
+    }
+
+    func animatedNodgeSurface(bottomRadius: CGFloat) -> some View {
+        let shape = UnevenRoundedRectangle(
+            cornerRadii: .init(
+                topLeading: 0,
+                bottomLeading: bottomRadius,
+                bottomTrailing: bottomRadius,
+                topTrailing: 0
+            ),
+            style: .continuous
+        )
+        return background {
+            AnimatedSetupBackground()
+                .clipShape(shape)
+        }
+        .overlay {
+            shape.strokeBorder(.white.opacity(0.06), lineWidth: 0.6)
+        }
+        .shadow(color: .black.opacity(0.48), radius: 18, y: 10)
     }
 }
