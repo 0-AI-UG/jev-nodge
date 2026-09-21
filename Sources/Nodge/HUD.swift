@@ -367,8 +367,8 @@ private struct PrismaticGlow: View {
             let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
             Canvas { context, size in
                 let breath = 0.95 + 0.05 * sin(time * 1.6)
-                let center = size.width * (0.5 + 0.065 * sin(time * 0.9))
-                let span = size.width * (0.40 + 0.035 * sin(time * 1.2))
+                let center = size.width * 0.5
+                let span = size.width * 0.40
 
                 func ribbon(_ color: Color, offset: Double, width: Double, blur: Double, opacity: Double, whiteBeam: Bool = false) {
                     var path = Path()
