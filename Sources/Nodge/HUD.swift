@@ -358,7 +358,7 @@ private struct ConfidenceDots: View {
     }
 }
 
-/// Overlapping spectral ribbons converge into one white beam, with a soft upward bloom.
+/// A white source splits into animated spectral plumes above the bottom edge.
 private struct PrismaticGlow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -366,9 +366,9 @@ private struct PrismaticGlow: View {
         TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
             let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
             Canvas { context, size in
-                let breath = 0.92 + 0.08 * sin(time * 0.9)
-                let center = size.width * (0.5 + 0.045 * sin(time * 0.43))
-                let span = size.width * (0.42 + 0.025 * sin(time * 0.67))
+                let breath = 0.85 + 0.15 * sin(time * 1.6)
+                let center = size.width * (0.5 + 0.065 * sin(time * 0.9))
+                let span = size.width * (0.40 + 0.035 * sin(time * 1.2))
 
                 func ribbon(_ color: Color, offset: Double, width: Double, blur: Double, opacity: Double) {
                     var path = Path()
@@ -376,7 +376,8 @@ private struct PrismaticGlow: View {
                         let u = Double(index) / 96
                         let x = center + (u * 2 - 1) * span
                         let envelope = pow(sin(u * .pi), 2)
-                        let wave = 1.8 + 1.2 * sin(u * .pi * 2 + time * 0.7)
+                        let flare = sin(u * .pi * 4 - time * 2.2 + offset * 0.17)
+                        let wave = 1.2 + max(0, offset) * 0.65 * flare
                         let y = size.height - 1.8 - envelope * (wave + offset)
                         let point = CGPoint(x: x, y: y)
                         if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
@@ -397,15 +398,18 @@ private struct PrismaticGlow: View {
                     ), style: StrokeStyle(lineWidth: width, lineCap: .round))
                 }
 
-                context.blendMode = .plusLighter
-                ribbon(.white, offset: 2, width: 10, blur: 9, opacity: 0.3)
-                ribbon(Color(red: 0.55, green: 0.7, blue: 1), offset: 3.8, width: 3, blur: 3, opacity: 0.55)
-                ribbon(Color(red: 1, green: 0.55, blue: 0.72), offset: 1.7, width: 2, blur: 2.2, opacity: 0.4)
-                ribbon(Color(red: 0.6, green: 1, blue: 1), offset: -0.5, width: 2, blur: 1.8, opacity: 0.45)
-                ribbon(.white, offset: 0.6, width: 2.5, blur: 1.2, opacity: 0.85)
+                // Screen blending retains saturation as the colored plumes overlap.
+                context.blendMode = .screen
+                ribbon(Color(red: 0.65, green: 0.04, blue: 1), offset: 16, width: 12, blur: 7, opacity: 0.65)
+                ribbon(Color(red: 1, green: 0.06, blue: 0.32), offset: 12, width: 7, blur: 3.5, opacity: 0.85)
+                ribbon(Color(red: 1, green: 0.56, blue: 0.05), offset: 8, width: 5, blur: 2.5, opacity: 0.8)
+                ribbon(Color(red: 0.02, green: 0.85, blue: 1), offset: 4.5, width: 5, blur: 2.5, opacity: 0.95)
+                ribbon(Color(red: 0.16, green: 0.2, blue: 1), offset: 2, width: 7, blur: 4, opacity: 0.8)
+                ribbon(.white, offset: 0, width: 4, blur: 3, opacity: 0.6)
+                ribbon(.white, offset: 0, width: 1.5, blur: 0.7, opacity: 0.95)
             }
         }
-        .frame(height: 34)
+        .frame(height: 42)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -458,12 +462,11 @@ private extension View {
             style: .continuous
         )
         return background {
-            shape.fill(.black)
-        }
-        .overlay(alignment: .bottom) {
-            PrismaticGlow()
-                .frame(maxHeight: .infinity, alignment: .bottom)
-                .clipShape(shape)
+            ZStack(alignment: .bottom) {
+                shape.fill(.black)
+                PrismaticGlow()
+            }
+            .clipShape(shape)
         }
         .shadow(color: .black.opacity(0.6), radius: 18, y: 10)
     }
