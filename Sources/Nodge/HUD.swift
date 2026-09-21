@@ -187,12 +187,11 @@ private struct SetupView: View {
                 stepContent
                     .id(model.setupStep)
                     .transition(.asymmetric(
-                        insertion: .move(edge: .trailing).combined(with: .opacity),
-                        removal: .move(edge: .leading).combined(with: .opacity)
+                        insertion: .offset(x: 12).combined(with: .opacity),
+                        removal: .offset(x: -12).combined(with: .opacity)
                     ))
             }
             .frame(height: 56)
-            .clipped()
 
             if !model.setupError.isEmpty {
                 Text(model.setupError)
@@ -204,8 +203,12 @@ private struct SetupView: View {
 
             HStack(spacing: 12) {
                 if model.setupStep > 0 {
-                    Button("Back", action: model.retreatSetup)
-                        .modifier(SetupButtonAppearance(primary: false))
+                    Button(action: model.retreatSetup) {
+                        Image(systemName: "chevron.left")
+                            .accessibilityLabel("Back")
+                    }
+                    .help("Back")
+                    .modifier(SetupButtonAppearance(primary: false))
                 }
                 Button(model.setupStep == 2 ? "Start" : "Continue", action: model.advanceSetup)
                     .modifier(SetupButtonAppearance(primary: true))
