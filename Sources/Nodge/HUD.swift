@@ -398,8 +398,8 @@ private struct PrismaticGlow: View {
                     ), style: StrokeStyle(lineWidth: width, lineCap: .round))
                 }
 
-                // A shared curve keeps the spectrum ordered as it moves. Separate
-                // narrow cores preserve color; broad low-opacity copies provide bloom.
+                // A shared curve keeps the spectrum ordered while overlapping
+                // soft ribbons and a wider halo merge the bands into light.
                 let spectrum: [(Color, Double)] = [
                     (Color(red: 1, green: 0.02, blue: 0.16), 21),
                     (Color(red: 1, green: 0.42, blue: 0), 17.5),
@@ -409,13 +409,13 @@ private struct PrismaticGlow: View {
                     (Color(red: 0.06, green: 0.16, blue: 1), 3.5),
                 ]
                 for (color, offset) in spectrum {
-                    ribbon(color, offset: offset, width: 6, blur: 5, opacity: 0.32)
+                    ribbon(color, offset: offset, width: 8, blur: 9, opacity: 0.48)
                 }
                 for (color, offset) in spectrum {
-                    ribbon(color, offset: offset, width: 3.6, blur: 0.9, opacity: 1)
+                    ribbon(color, offset: offset, width: 4.5, blur: 3.2, opacity: 0.95)
                 }
-                ribbon(.white, offset: 0, width: 3, blur: 2, opacity: 0.35)
-                ribbon(.white, offset: 0, width: 1.5, blur: 0.7, opacity: 0.95)
+                ribbon(.white, offset: 0, width: 3, blur: 4, opacity: 0.4)
+                ribbon(.white, offset: 0, width: 1.5, blur: 1.5, opacity: 0.95)
             }
         }
         .frame(height: 42)
