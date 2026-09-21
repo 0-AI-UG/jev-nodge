@@ -1,6 +1,13 @@
 import AppKit
 import SwiftUI
 
+/// Borderless panels do not become key by default, which makes SwiftUI fields look
+/// interactive while rejecting clicks and typing. Setup explicitly needs key status.
+final class NodgePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
 /// Pipeline: always listening → utterance → Jev scores the options → decision → OS action.
 @MainActor
 final class Controller: NSObject {
@@ -27,8 +34,8 @@ final class Controller: NSObject {
     private let dumpSignal = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
 
     func start() {
-        panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 620),
-                        styleMask: [.borderless], backing: .buffered, defer: false)
+        panel = NodgePanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 620),
+                           styleMask: [.borderless], backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
@@ -151,6 +158,7 @@ final class Controller: NSObject {
         hud.show(.setup, title: "Set up Nodge")
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+        panel.makeFirstResponder(panel.contentView)
     }
 
     @objc private func openSetup() {
