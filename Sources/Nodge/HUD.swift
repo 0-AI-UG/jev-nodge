@@ -53,12 +53,14 @@ final class HUDModel: ObservableObject {
         switch setupStep {
         case 0:
             guard !AppSettings.shared.wakePhrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                AppSettings.shared.wakePhrase = ""
                 setupError = "Choose a wake name"
                 return
             }
             withAnimation(.spring(response: 0.46, dampingFraction: 0.78)) { setupStep = 1 }
         case 1:
             guard !openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                openRouterKey = ""
                 setupError = "Add an OpenRouter API key"
                 return
             }
@@ -193,7 +195,7 @@ private struct SetupView: View {
             }
             .frame(height: 56)
 
-            if !model.setupError.isEmpty {
+            if model.setupStep == 2 && !model.setupError.isEmpty {
                 Text(model.setupError)
                     .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(.white.opacity(0.65))
@@ -227,6 +229,12 @@ private struct SetupView: View {
         .frame(width: 330, height: 180)
         .animatedNodgeSurface(bottomRadius: 18)
         .animation(.spring(response: 0.46, dampingFraction: 0.78), value: model.setupStep)
+        .onChange(of: settings.wakePhrase) { _, value in
+            if model.setupStep == 0 && !value.isEmpty { model.setupError = "" }
+        }
+        .onChange(of: model.openRouterKey) { _, value in
+            if model.setupStep == 1 && !value.isEmpty { model.setupError = "" }
+        }
     }
 
     private var stepTitle: String {
@@ -252,7 +260,11 @@ private struct SetupView: View {
             HStack(spacing: 10) {
                 Text("Hey")
                     .foregroundStyle(.white.opacity(0.42))
-                TextField("Jev", text: $settings.wakePhrase)
+                TextField("Wake name", text: $settings.wakePhrase,
+                          prompt: Text(model.setupError.isEmpty ? "Jev" : model.setupError)
+                            .foregroundStyle(.white.opacity(0.6)))
+                    .accessibilityLabel("Wake name")
+                    .accessibilityHint(model.setupError)
                     .textFieldStyle(.plain)
                     .frame(maxWidth: 170)
             }
@@ -261,7 +273,11 @@ private struct SetupView: View {
             .frame(height: 32)
             .setupField()
         case 1:
-            SecureField("sk-or-v1-…", text: $model.openRouterKey)
+            SecureField("OpenRouter API key", text: $model.openRouterKey,
+                        prompt: Text(model.setupError.isEmpty ? "sk-or-v1-…" : model.setupError)
+                            .foregroundStyle(.white.opacity(0.6)))
+                .accessibilityLabel("OpenRouter API key")
+                .accessibilityHint(model.setupError)
                 .textFieldStyle(.plain)
                 .font(.system(size: 11, design: .monospaced))
                 .padding(.horizontal, 14)
