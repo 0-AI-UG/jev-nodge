@@ -170,7 +170,7 @@ private struct SetupView: View {
     var body: some View {
         VStack(spacing: 0) {
             Text(stepTitle)
-                .font(.system(size: 15.5, weight: .semibold, design: .rounded))
+                .font(.system(size: 15.5, weight: .semibold))
                 .multilineTextAlignment(.center)
                 .padding(.top, 22)
 
@@ -205,15 +205,16 @@ private struct SetupView: View {
             HStack(spacing: 12) {
                 if model.setupStep > 0 {
                     Button("Back", action: model.retreatSetup)
-                        .buttonStyle(SecondarySetupButtonStyle())
+                        .modifier(SetupButtonAppearance(primary: false))
                 }
                 Button(model.setupStep == 2 ? "Start" : "Continue", action: model.advanceSetup)
-                    .buttonStyle(PrimarySetupButtonStyle())
+                    .modifier(SetupButtonAppearance(primary: true))
             }
             .padding(.top, 2)
             .padding(.bottom, 8)
         }
         .foregroundStyle(.white)
+        .environment(\.colorScheme, .dark)
         .padding(.horizontal, 22)
         .frame(width: 330, height: 180)
         .animatedNodgeSurface(bottomRadius: 18)
@@ -247,7 +248,7 @@ private struct SetupView: View {
                     .textFieldStyle(.plain)
                     .frame(maxWidth: 170)
             }
-            .font(.system(size: 13.5, weight: .medium, design: .rounded))
+            .font(.system(size: 13.5, weight: .medium))
             .padding(.horizontal, 14)
             .frame(height: 32)
             .setupField()
@@ -301,28 +302,27 @@ private struct StepDots: View {
     }
 }
 
-private struct PrimarySetupButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 10.5, weight: .semibold))
-            .frame(minWidth: 86)
-            .frame(height: 28)
-            .background(.white.opacity(configuration.isPressed ? 0.76 : 1), in: Capsule())
-            .foregroundStyle(.black)
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.spring(response: 0.22, dampingFraction: 0.72), value: configuration.isPressed)
-    }
-}
+private struct SetupButtonAppearance: ViewModifier {
+    let primary: Bool
 
-private struct SecondarySetupButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 10.5, weight: .semibold))
-            .frame(minWidth: 60)
-            .frame(height: 28)
-            .background(.white.opacity(configuration.isPressed ? 0.13 : 0.07), in: Capsule())
-            .foregroundStyle(.white.opacity(0.72))
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            if primary {
+                content.buttonStyle(.glassProminent)
+                    .tint(.white)
+                    .foregroundStyle(.black)
+                    .controlSize(.small)
+                    .buttonBorderShape(.capsule)
+            } else {
+                content.buttonStyle(.glass)
+                    .controlSize(.small)
+                    .buttonBorderShape(.capsule)
+            }
+        } else {
+            content.buttonStyle(.bordered)
+                .controlSize(.small)
+        }
     }
 }
 
@@ -431,10 +431,13 @@ private struct PrismaticGlow: View {
 
 private extension View {
     func setupField() -> some View {
-        background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+        background(.black.opacity(0.2), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 15, style: .continuous)
-                    .strokeBorder(.white.opacity(0.09), lineWidth: 0.7)
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(LinearGradient(
+                        colors: [.white.opacity(0.2), .white.opacity(0.06), .white.opacity(0.12)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    ), lineWidth: 0.6)
             }
     }
 
@@ -477,10 +480,24 @@ private extension View {
         )
         return background {
             ZStack(alignment: .bottom) {
-                shape.fill(.black)
+                if #available(macOS 26.0, *) {
+                    Color.clear
+                        .glassEffect(.regular.tint(.black.opacity(0.45)), in: shape)
+                } else {
+                    shape.fill(.ultraThinMaterial)
+                        .overlay(shape.fill(.black.opacity(0.4)))
+                }
+                // Opaque near the camera, translucent toward the lower glass lip.
+                LinearGradient(stops: [
+                    .init(color: .black, location: 0),
+                    .init(color: .black, location: 0.16),
+                    .init(color: .black.opacity(0.85), location: 0.38),
+                    .init(color: .black.opacity(0.25), location: 1),
+                ], startPoint: .top, endPoint: .bottom)
                 PrismaticGlow()
             }
             .clipShape(shape)
+            .environment(\.colorScheme, .dark)
         }
         .shadow(color: .black.opacity(0.6), radius: 18, y: 10)
     }
