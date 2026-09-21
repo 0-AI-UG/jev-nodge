@@ -192,7 +192,7 @@ enum Actions {
     static func screenshot() -> String {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd HH.mm.ss"
-        let name = "Nodge Screenshot \(f.string(from: Date())).png"
+        let name = "Jev Nodge Screenshot \(f.string(from: Date())).png"
         let path = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop/\(name)").path
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")

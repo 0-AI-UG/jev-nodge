@@ -1,6 +1,6 @@
-# Nodge
+# Jev Nodge
 
-Nodge is a small, open-source macOS assistant that lives in the display notch.
+Jev Nodge is a small, open-source macOS assistant that lives in the display notch.
 It listens locally, uses TypeSafe Jev through OpenRouter to choose grounded
 actions, controls visible Mac applications through Accessibility and OCR, and
 uses a generative model for conversational answers.
@@ -24,15 +24,15 @@ pnpm install:app
 pnpm update:app
 ```
 
-The first launch opens setup inside the notch. Add one OpenRouter API key,
-choose the Jev and response models, then grant Microphone, Speech Recognition,
+The first launch opens setup inside the notch. Choose a wake name, add one
+OpenRouter API key, select a voice, then grant Microphone, Speech Recognition,
 Accessibility, and optionally Screen Recording.
 
 Choose any wake name in setup and say “Hey <name>” before a command. Press
-Option-Space to arm or hide Nodge without a wake phrase, and Escape to dismiss
+Option-Space to arm or hide Jev Nodge without a wake phrase, and Escape to dismiss
 the current surface.
 
-Secrets are stored in macOS Keychain. Preferences use `UserDefaults`. Nodge
+Secrets are stored in macOS Keychain. Preferences use `UserDefaults`. Jev Nodge
 does not write API keys to project files.
 
 ## Safety

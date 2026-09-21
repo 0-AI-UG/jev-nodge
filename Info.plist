@@ -4,15 +4,16 @@
 <dict>
     <key>CFBundleIdentifier</key><string>ug.zeroai.nodge</string>
     <key>CFBundleExecutable</key><string>Nodge</string>
-    <key>CFBundleName</key><string>Nodge</string>
+    <key>CFBundleName</key><string>Jev Nodge</string>
+    <key>CFBundleDisplayName</key><string>Jev Nodge</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleIconFile</key><string>Nodge.icns</string>
     <key>CFBundleShortVersionString</key><string>0.1.0</string>
     <key>CFBundleVersion</key><string>1</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
-    <key>NSMicrophoneUsageDescription</key><string>Nodge listens for the wake phrase and your voice commands.</string>
-    <key>NSSpeechRecognitionUsageDescription</key><string>Nodge transcribes commands on this Mac.</string>
-    <key>NSAppleEventsUsageDescription</key><string>Nodge uses Apple events only for actions you request.</string>
+    <key>NSMicrophoneUsageDescription</key><string>Jev Nodge listens for the wake phrase and your voice commands.</string>
+    <key>NSSpeechRecognitionUsageDescription</key><string>Jev Nodge transcribes commands on this Mac.</string>
+    <key>NSAppleEventsUsageDescription</key><string>Jev Nodge uses Apple events only for actions you request.</string>
 </dict>
 </plist>

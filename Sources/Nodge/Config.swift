@@ -223,7 +223,7 @@ enum Registry {
 
     private static let starter = """
     {
-      "_readme": "Nodge reloads this file when you save it. Move an entry from _more_examples into commands to switch it on. Full reference: README.md in the project. Unknown keys such as this one are ignored.",
+      "_readme": "Jev Nodge reloads this file when you save it. Move an entry from _more_examples into commands to switch it on. Full reference: README.md in the project. Unknown keys such as this one are ignored.",
 
       "commands": [],
 

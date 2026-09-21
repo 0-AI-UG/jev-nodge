@@ -61,7 +61,7 @@ for (name, pixels) in variants {
     let configuration = sizeConfiguration.applying(colorConfiguration)
     guard let symbol = NSImage(
         systemSymbolName: "waveform.circle.fill",
-        accessibilityDescription: "Nodge"
+        accessibilityDescription: "Jev Nodge"
     )?.withSymbolConfiguration(configuration) else { fatalError("SF Symbol unavailable") }
 
     let symbolSize = CGFloat(pixels) * 0.56

@@ -3,7 +3,7 @@ set -euo pipefail
 
 project_dir="$(cd "$(dirname "$0")/.." && pwd)"
 configuration="${CONFIGURATION:-debug}"
-app_dir="$project_dir/dist/Nodge.app"
+app_dir="$project_dir/dist/Jev Nodge.app"
 
 cd "$project_dir"
 swift build -c "$configuration"

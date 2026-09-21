@@ -5,7 +5,7 @@ enum AIClient {
 
     static func reply(to text: String, frontmostApp: String) async throws -> String {
         try await completion(
-            system: "You are Nodge, a concise voice assistant on macOS. Answer naturally in the user's language. Keep spoken answers under three short sentences unless the user asks for detail. The frontmost app is \(frontmostApp).",
+            system: "You are Jev Nodge, a concise voice assistant on macOS. Answer naturally in the user's language. Keep spoken answers under three short sentences unless the user asks for detail. The frontmost app is \(frontmostApp).",
             user: text
         )
     }
@@ -28,7 +28,7 @@ enum AIClient {
         request.timeoutInterval = 30
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Nodge", forHTTPHeaderField: "X-OpenRouter-Title")
+        request.setValue("Jev Nodge", forHTTPHeaderField: "X-OpenRouter-Title")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "model": model,
             "messages": [

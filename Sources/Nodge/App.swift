@@ -34,7 +34,7 @@ final class Controller: NSObject {
     private let dumpSignal = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
 
     func start() {
-        panel = NodgePanel(contentRect: NSRect(x: 0, y: 0, width: 430, height: 370),
+        panel = NodgePanel(contentRect: NSRect(x: 0, y: 0, width: 390, height: 280),
                            styleMask: [.borderless], backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -46,7 +46,7 @@ final class Controller: NSObject {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.contentView = NSHostingView(rootView: HUDView(model: hud))
         if let screen = NSScreen.main?.frame {
-            panel.setFrameOrigin(NSPoint(x: screen.midX - 215, y: screen.maxY - 370))
+            panel.setFrameOrigin(NSPoint(x: screen.midX - 195, y: screen.maxY - 280))
         }
         panel.orderFrontRegardless()
 
@@ -55,7 +55,7 @@ final class Controller: NSObject {
         let menu = NSMenu()
         let pause = menu.addItem(withTitle: "Pause listening", action: #selector(togglePause(_:)), keyEquivalent: "p")
         pause.target = self
-        let show = menu.addItem(withTitle: "Show or hide Nodge", action: #selector(toggleOverlay), keyEquivalent: " ")
+        let show = menu.addItem(withTitle: "Show or hide Jev Nodge", action: #selector(toggleOverlay), keyEquivalent: " ")
         show.target = self
         show.keyEquivalentModifierMask = [.option]
         menu.addItem(.separator())
@@ -63,7 +63,7 @@ final class Controller: NSObject {
         menu.addItem(withTitle: "Edit commands…", action: #selector(openConfig), keyEquivalent: "e").target = self
         menu.addItem(withTitle: "Open log", action: #selector(openLog), keyEquivalent: "l").target = self
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit Nodge", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(withTitle: "Quit Jev Nodge", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         statusItem.menu = menu
 
         // `kill -USR1 $(pgrep -x Nodge)` writes the current UI tree to ~/Library/Logs/Nodge-ui.log.
@@ -103,15 +103,20 @@ final class Controller: NSObject {
     }
 
     private func resizePanel(for shape: HUDModel.Shape) {
-        let height: CGFloat
+        let size: NSSize
         switch shape {
-        case .hidden: height = 12
-        case .pill: height = 84
-        case .card: height = 218
-        case .setup: height = 370
+        case .hidden: size = NSSize(width: 390, height: 12)
+        case .pill: size = NSSize(width: 410, height: 84)
+        case .card: size = NSSize(width: 520, height: 218)
+        case .setup: size = NSSize(width: 390, height: 280)
         }
         guard let screen = panel.screen ?? NSScreen.main else { return }
-        let next = NSRect(x: screen.frame.midX - 215, y: screen.frame.maxY - height, width: 430, height: height)
+        let next = NSRect(
+            x: screen.frame.midX - size.width / 2,
+            y: screen.frame.maxY - size.height,
+            width: size.width,
+            height: size.height
+        )
         panel.ignoresMouseEvents = shape != .setup
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.38
@@ -155,7 +160,7 @@ final class Controller: NSObject {
     private func showSetup() {
         if listenerConfigured { listener.setEnabled(false) }
         panel.ignoresMouseEvents = false
-        hud.show(.setup, title: "Set up Nodge")
+        hud.show(.setup, title: "Set up Jev Nodge")
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(panel.contentView)
@@ -181,7 +186,7 @@ final class Controller: NSObject {
             if paused { log("launch: staying paused") }
             listener.setEnabled(!paused)
             refreshPauseUI()
-            hud.show(.pill, title: paused ? "Nodge is paused" : "Go ahead, I’m listening")
+            hud.show(.pill, title: paused ? "Jev Nodge is paused" : "Go ahead, I’m listening")
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 if !self.active { self.hud.hide() }
@@ -245,7 +250,7 @@ final class Controller: NSObject {
         let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
         let image = NSImage(
             systemSymbolName: paused ? "waveform.circle" : "waveform.circle.fill",
-            accessibilityDescription: paused ? "Nodge paused" : "Nodge listening"
+            accessibilityDescription: paused ? "Jev Nodge paused" : "Jev Nodge listening"
         )?.withSymbolConfiguration(configuration)
         image?.isTemplate = true
         return image
@@ -415,7 +420,7 @@ final class Controller: NSObject {
             return
         }
         if command.steps.contains(where: \.needsAccessibility), !AXIsProcessTrusted() {
-            hud.show(.card, title: "No access", subtitle: "Enable Nodge in Settings → Accessibility", probs: d.probs)
+            hud.show(.card, title: "No access", subtitle: "Enable Jev Nodge in Settings → Accessibility", probs: d.probs)
             return
         }
         if command.confirm {
@@ -721,7 +726,7 @@ final class Controller: NSObject {
         if targets.isEmpty { (targets, source) = await Self.scan(pid: pid) }
         if Set(targets.map(\.label)).count < 5, !Screen.hasAccess {
             Screen.requestAccess()
-            hud.show(.card, title: "No access", subtitle: "Enable Nodge in Settings → Screen Recording", hint: "\(targetApp?.localizedName ?? "This app") hides its buttons", probs: probs)
+            hud.show(.card, title: "No access", subtitle: "Enable Jev Nodge in Settings → Screen Recording", hint: "\(targetApp?.localizedName ?? "This app") hides its buttons", probs: probs)
             return
         }
         let labels = Self.labels(from: targets.map(\.label))

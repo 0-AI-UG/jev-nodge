@@ -32,7 +32,7 @@ final class AppSettings: ObservableObject {
         let defaults = UserDefaults.standard
         responseModel = defaults.string(forKey: Key.responseModel) ?? "~openai/gpt-latest"
         jevModel = defaults.string(forKey: Key.jevModel) ?? "~typesafe/jev-latest"
-        wakePhrase = defaults.string(forKey: Key.wakePhrase) ?? "Nodge"
+        wakePhrase = defaults.string(forKey: Key.wakePhrase) ?? "Jev"
         voiceProvider = VoiceProvider(rawValue: defaults.string(forKey: Key.voiceProvider) ?? "") ?? .system
         elevenLabsVoiceID = defaults.string(forKey: Key.elevenLabsVoiceID) ?? ""
         setupComplete = defaults.bool(forKey: Key.setupComplete) && Keychain.read("openrouter") != nil

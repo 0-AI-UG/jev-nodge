@@ -93,8 +93,8 @@ struct HUDView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             case .setup:
                 SetupView(model: model)
-                    .padding(.horizontal, 40)
-                    .padding(.bottom, 34)
+                    .padding(.horizontal, 30)
+                    .padding(.bottom, 30)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
             Spacer(minLength: 0)
@@ -115,7 +115,7 @@ private struct CompactView: View {
                 .lineLimit(1)
             Spacer(minLength: 6)
             Circle()
-                .fill(model.title.localizedCaseInsensitiveContains("listen") ? Color.green : Color.white.opacity(0.35))
+                .fill(model.title.localizedCaseInsensitiveContains("listen") ? Color.white : Color.white.opacity(0.35))
                 .frame(width: 6, height: 6)
         }
         .foregroundStyle(.white)
@@ -133,7 +133,7 @@ private struct ResultView: View {
             HStack(spacing: 10) {
                 Image(systemName: "waveform")
                     .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(.white.opacity(0.8))
                 Text(model.title)
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
                     .lineLimit(1)
@@ -170,18 +170,18 @@ private struct SetupView: View {
     var body: some View {
         VStack(spacing: 0) {
             Text(stepTitle)
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                .font(.system(size: 15.5, weight: .semibold, design: .rounded))
                 .multilineTextAlignment(.center)
-                .padding(.top, 40)
+                .padding(.top, 29)
 
             Text(stepSubtitle)
-                .font(.system(size: 11))
+                .font(.system(size: 10))
                 .foregroundStyle(.white.opacity(0.52))
                 .multilineTextAlignment(.center)
-                .padding(.top, 5)
+                .padding(.top, 3)
 
             StepDots(current: model.setupStep)
-                .padding(.top, 10)
+                .padding(.top, 7)
 
             ZStack {
                 stepContent
@@ -191,13 +191,13 @@ private struct SetupView: View {
                         removal: .move(edge: .leading).combined(with: .opacity)
                     ))
             }
-            .frame(height: 96)
+            .frame(height: 70)
             .clipped()
 
             Text(model.setupError)
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(.orange)
-                .frame(height: 16)
+                .font(.system(size: 9.5, weight: .medium))
+                .foregroundStyle(.white.opacity(0.65))
+                .frame(height: 12)
                 .opacity(model.setupError.isEmpty ? 0 : 1)
 
             HStack(spacing: 12) {
@@ -205,22 +205,22 @@ private struct SetupView: View {
                     Button("Back", action: model.retreatSetup)
                         .buttonStyle(SecondarySetupButtonStyle())
                 }
-                Button(model.setupStep == 2 ? "Start Nodge" : "Continue", action: model.advanceSetup)
+                Button(model.setupStep == 2 ? "Start" : "Continue", action: model.advanceSetup)
                     .buttonStyle(PrimarySetupButtonStyle())
             }
-            .padding(.top, 7)
-            .padding(.bottom, 15)
+            .padding(.top, 4)
+            .padding(.bottom, 10)
         }
         .foregroundStyle(.white)
-        .padding(.horizontal, 26)
-        .frame(width: 350, height: 300)
-        .animatedNodgeSurface(bottomRadius: 22)
+        .padding(.horizontal, 22)
+        .frame(width: 330, height: 220)
+        .animatedNodgeSurface(bottomRadius: 18)
         .animation(.spring(response: 0.46, dampingFraction: 0.78), value: model.setupStep)
     }
 
     private var stepTitle: String {
         switch model.setupStep {
-        case 0: return "What should wake Nodge?"
+        case 0: return "Wake Jev Nodge"
         case 1: return "Connect OpenRouter"
         default: return "Choose a voice"
         }
@@ -230,7 +230,7 @@ private struct SetupView: View {
         switch model.setupStep {
         case 0: return "Pick a short name that feels natural to say."
         case 1: return "Your key stays in the macOS Keychain."
-        default: return "Nodge will speak AI answers using this voice."
+        default: return "Jev Nodge will speak AI answers using this voice."
         }
     }
 
@@ -241,28 +241,28 @@ private struct SetupView: View {
             HStack(spacing: 10) {
                 Text("Hey")
                     .foregroundStyle(.white.opacity(0.42))
-                TextField("Nodge", text: $settings.wakePhrase)
+                TextField("Jev", text: $settings.wakePhrase)
                     .textFieldStyle(.plain)
                     .frame(maxWidth: 170)
             }
-            .font(.system(size: 15, weight: .medium, design: .rounded))
-            .padding(.horizontal, 16)
-            .frame(height: 42)
+            .font(.system(size: 13.5, weight: .medium, design: .rounded))
+            .padding(.horizontal, 14)
+            .frame(height: 34)
             .setupField()
         case 1:
-            VStack(spacing: 9) {
+            VStack(spacing: 6) {
                 SecureField("sk-or-v1-…", text: $model.openRouterKey)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12.5, design: .monospaced))
-                    .padding(.horizontal, 16)
-                    .frame(height: 42)
+                    .font(.system(size: 11, design: .monospaced))
+                    .padding(.horizontal, 14)
+                    .frame(height: 34)
                     .setupField()
                 Link("Create an OpenRouter key", destination: URL(string: "https://openrouter.ai/keys")!)
-                    .font(.system(size: 10.5, weight: .medium))
+                    .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(.white.opacity(0.55))
             }
         default:
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 Picker("Voice", selection: $settings.voiceProvider) {
                     ForEach(AppSettings.VoiceProvider.allCases) { provider in
                         Text(provider.rawValue).tag(provider)
@@ -280,16 +280,6 @@ private struct SetupView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
-                DisclosureGroup("Model settings") {
-                    VStack(spacing: 6) {
-                        TextField("Jev model", text: $settings.jevModel)
-                        TextField("Answer model", text: $settings.responseModel)
-                    }
-                    .textFieldStyle(.roundedBorder)
-                    .padding(.top, 6)
-                }
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(.white.opacity(0.58))
             }
         }
     }
@@ -303,7 +293,7 @@ private struct StepDots: View {
             ForEach(0..<3, id: \.self) { index in
                 Capsule()
                     .fill(index == current ? .white : .white.opacity(0.18))
-                    .frame(width: index == current ? 16 : 5, height: 5)
+                    .frame(width: index == current ? 14 : 4, height: 4)
             }
         }
     }
@@ -312,9 +302,9 @@ private struct StepDots: View {
 private struct PrimarySetupButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 11.5, weight: .semibold))
-            .frame(minWidth: 98)
-            .frame(height: 34)
+            .font(.system(size: 10.5, weight: .semibold))
+            .frame(minWidth: 86)
+            .frame(height: 30)
             .background(.white.opacity(configuration.isPressed ? 0.76 : 1), in: Capsule())
             .foregroundStyle(.black)
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
@@ -325,47 +315,12 @@ private struct PrimarySetupButtonStyle: ButtonStyle {
 private struct SecondarySetupButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 11.5, weight: .semibold))
-            .frame(minWidth: 68)
-            .frame(height: 34)
+            .font(.system(size: 10.5, weight: .semibold))
+            .frame(minWidth: 60)
+            .frame(height: 30)
             .background(.white.opacity(configuration.isPressed ? 0.13 : 0.07), in: Capsule())
             .foregroundStyle(.white.opacity(0.72))
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
-    }
-}
-
-private struct AnimatedSetupBackground: View {
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 24)) { timeline in
-            GeometryReader { proxy in
-                let phase = timeline.date.timeIntervalSinceReferenceDate
-                ZStack {
-                    Color.black
-                    RadialGradient(
-                        colors: [.green.opacity(0.11), .clear],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: 120
-                    )
-                    .frame(width: 240, height: 170)
-                    .offset(
-                        x: 65 * sin(phase * 0.22),
-                        y: proxy.size.height * 0.25 + 17 * cos(phase * 0.19)
-                    )
-                    RadialGradient(
-                        colors: [.white.opacity(0.035), .clear],
-                        center: .center,
-                        startRadius: 0,
-                        endRadius: 105
-                    )
-                    .frame(width: 210, height: 150)
-                    .offset(
-                        x: -70 * cos(phase * 0.17),
-                        y: proxy.size.height * 0.36 + 14 * sin(phase * 0.2)
-                    )
-                }
-            }
-        }
     }
 }
 
@@ -448,13 +403,28 @@ private extension View {
             style: .continuous
         )
         return background {
-            AnimatedSetupBackground()
-                .clipShape(shape)
+            shape.fill(.black)
         }
         .overlay {
-            shape.strokeBorder(.white.opacity(0.06), lineWidth: 0.6)
+            TimelineView(.animation(minimumInterval: 1 / 30)) { timeline in
+                let phase = timeline.date.timeIntervalSinceReferenceDate * 20
+                let gradient = AngularGradient(
+                    colors: [.blue, .purple, .pink, .orange, .cyan, .blue],
+                    center: .center,
+                    startAngle: .degrees(phase),
+                    endAngle: .degrees(phase + 360)
+                )
+                ZStack {
+                    shape.strokeBorder(gradient, lineWidth: 12)
+                        .blur(radius: 7)
+                        .opacity(0.58)
+                    shape.strokeBorder(gradient, lineWidth: 1.5)
+                        .opacity(0.9)
+                }
+                .clipShape(shape)
+                .allowsHitTesting(false)
+            }
         }
-        .shadow(color: .green.opacity(0.18), radius: 24, y: 8)
         .shadow(color: .black.opacity(0.6), radius: 18, y: 10)
     }
 }
