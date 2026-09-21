@@ -28,6 +28,10 @@ The first launch opens setup inside the notch. Add one OpenRouter API key,
 choose the Jev and response models, then grant Microphone, Speech Recognition,
 Accessibility, and optionally Screen Recording.
 
+Choose any wake name in setup and say “Hey <name>” before a command. Press
+Option-Space to arm or hide Nodge without a wake phrase, and Escape to dismiss
+the current surface.
+
 Secrets are stored in macOS Keychain. Preferences use `UserDefaults`. Nodge
 does not write API keys to project files.
 

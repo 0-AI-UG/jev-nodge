@@ -22,6 +22,8 @@ final class Controller: NSObject {
     private var screenSource = "accessibility"
     private var screenScan: Task<Void, Never>?
     private var followupUntil = Date.distantPast
+    private var globalKeyMonitor: Any?
+    private var localKeyMonitor: Any?
     private let dumpSignal = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
 
     func start() {
@@ -46,6 +48,9 @@ final class Controller: NSObject {
         let menu = NSMenu()
         let pause = menu.addItem(withTitle: "Pause listening", action: #selector(togglePause(_:)), keyEquivalent: "p")
         pause.target = self
+        let show = menu.addItem(withTitle: "Show or hide Nodge", action: #selector(toggleOverlay), keyEquivalent: " ")
+        show.target = self
+        show.keyEquivalentModifierMask = [.option]
         menu.addItem(.separator())
         menu.addItem(withTitle: "Setup…", action: #selector(openSetup), keyEquivalent: ",").target = self
         menu.addItem(withTitle: "Edit commands…", action: #selector(openConfig), keyEquivalent: "e").target = self
@@ -76,9 +81,59 @@ final class Controller: NSObject {
 
         hud.onSetupComplete = { [weak self] in
             guard let self else { return }
-            self.panel.ignoresMouseEvents = true
             self.panel.resignKey()
             self.startListening()
+        }
+        hud.onShapeChange = { [weak self] shape in self?.resizePanel(for: shape) }
+
+        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            Task { @MainActor in self?.handleKey(event) }
+        }
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            return self.handleKey(event) ? nil : event
+        }
+    }
+
+    private func resizePanel(for shape: HUDModel.Shape) {
+        let height: CGFloat
+        switch shape {
+        case .hidden: height = 12
+        case .pill: height = 54
+        case .card: height = 190
+        case .setup: height = 520
+        }
+        guard let screen = panel.screen ?? NSScreen.main else { return }
+        let next = NSRect(x: screen.frame.midX - 280, y: screen.frame.maxY - height, width: 560, height: height)
+        panel.ignoresMouseEvents = shape != .setup
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.38
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().setFrame(next, display: true)
+        }
+    }
+
+    @discardableResult
+    private func handleKey(_ event: NSEvent) -> Bool {
+        let optionSpace = event.keyCode == 49 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.option)
+        if optionSpace {
+            toggleOverlay()
+            return true
+        }
+        if event.keyCode == 53, hud.shape != .hidden, hud.shape != .setup {
+            hud.hide()
+            return true
+        }
+        return false
+    }
+
+    @objc private func toggleOverlay() {
+        guard hud.shape != .setup else { return }
+        if hud.shape == .hidden {
+            followupUntil = Date().addingTimeInterval(10)
+            hud.show(.pill, title: "Go ahead, I’m listening")
+        } else {
+            hud.hide()
         }
     }
 
