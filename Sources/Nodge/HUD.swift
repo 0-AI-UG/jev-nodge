@@ -370,15 +370,18 @@ private struct PrismaticGlow: View {
                 let center = size.width * (0.5 + 0.065 * sin(time * 0.9))
                 let span = size.width * (0.40 + 0.035 * sin(time * 1.2))
 
-                func ribbon(_ color: Color, offset: Double, width: Double, blur: Double, opacity: Double) {
+                func ribbon(_ color: Color, offset: Double, width: Double, blur: Double, opacity: Double, whiteBeam: Bool = false) {
                     var path = Path()
                     for index in 0...96 {
                         let u = Double(index) / 96
                         let x = center + (u * 2 - 1) * span
                         let envelope = pow(sin(u * .pi), 2)
                         let flare = sin(u * .pi * 3 - time * 1.8)
-                        let wave = 1.2 + max(0, offset) * 0.2 * flare
-                        let y = size.height - 1.8 - envelope * (wave + offset)
+                        let convergence = min(1, max(0, (u - 0.25) / 0.45))
+                        let blend = convergence * convergence * (3 - 2 * convergence)
+                        let spread = offset + (5 - offset) * blend
+                        let wave = 1.2 + spread * 0.2 * flare
+                        let y = size.height - 1.8 - envelope * (wave + spread)
                         let point = CGPoint(x: x, y: y)
                         if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
                     }
@@ -388,9 +391,10 @@ private struct PrismaticGlow: View {
                     layer.stroke(path, with: .linearGradient(
                         Gradient(stops: [
                             .init(color: .clear, location: 0),
-                            .init(color: color.opacity(0.85), location: 0.18),
-                            .init(color: color, location: 0.5),
-                            .init(color: color.opacity(0.85), location: 0.82),
+                            .init(color: whiteBeam ? .clear : color.opacity(0.85), location: 0.18),
+                            .init(color: whiteBeam ? color.opacity(0.7) : color, location: 0.5),
+                            .init(color: whiteBeam ? .white : color.opacity(0.25), location: 0.72),
+                            .init(color: whiteBeam ? color.opacity(0.9) : .clear, location: 0.88),
                             .init(color: .clear, location: 1),
                         ]),
                         startPoint: CGPoint(x: center - span, y: 0),
@@ -414,8 +418,9 @@ private struct PrismaticGlow: View {
                 for (color, offset) in spectrum {
                     ribbon(color, offset: offset, width: 4.5, blur: 3.2, opacity: 0.95)
                 }
-                ribbon(.white, offset: 0, width: 3, blur: 4, opacity: 0.4)
-                ribbon(.white, offset: 0, width: 1.5, blur: 1.5, opacity: 0.95)
+                ribbon(.white, offset: 5, width: 12, blur: 9, opacity: 0.7, whiteBeam: true)
+                ribbon(.white, offset: 5, width: 5, blur: 3, opacity: 0.95, whiteBeam: true)
+                ribbon(.white, offset: 5, width: 2.5, blur: 0.8, opacity: 1, whiteBeam: true)
             }
         }
         .frame(height: 42)
