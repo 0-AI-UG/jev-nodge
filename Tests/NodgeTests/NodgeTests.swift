@@ -47,10 +47,25 @@ final class NodgeTests: XCTestCase {
 
     @MainActor
     func testFeedbackHasReadingTimeAndSpeechCanBeStopped() {
-        XCTAssertGreaterThanOrEqual(Controller.resultDuration, 12_000_000_000)
+        XCTAssertEqual(Controller.resultDuration, 4_000_000_000)
         VoiceResponder.shared.stop()
         XCTAssertFalse(VoiceResponder.shared.isSpeaking)
     }
+    @MainActor
+    func testIdleMicrophoneCleanupDoesNotCreateAnAudioEngine() {
+        let listener = Listener()
+        XCTAssertNil(listener.engine)
+        listener.setEnabled(false)
+        listener.applyConfig()
+        listener.setEnabled(false)
+        XCTAssertFalse(listener.enabled)
+        XCTAssertNil(listener.engine)
+
+        let meter = SetupAudioMeter()
+        meter.stop()
+        XCTAssertNil(meter.engine)
+    }
+
     func testWakeNameAloneAndCommands() {
         XCTAssertEqual(VoiceWake.command(in: "Hey Jev", name: "Jev"), "")
         XCTAssertEqual(VoiceWake.command(in: "HEY JEV, open Safari", name: "Jev"), "open Safari")

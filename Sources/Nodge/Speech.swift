@@ -6,7 +6,7 @@ import Speech
 @MainActor
 final class SetupAudioMeter {
     var onLevel: (Double) -> Void = { _ in }
-    private let engine = AVAudioEngine()
+    private(set) var engine: AVAudioEngine?
     private var wantsRunning = false
     private var running = false
 
@@ -28,18 +28,18 @@ final class SetupAudioMeter {
 
     func stop() {
         wantsRunning = false
-        guard running else {
-            onLevel(0)
-            return
+        if let engine {
+            engine.stop()
+            if running { engine.inputNode.removeTap(onBus: 0) }
         }
-        engine.stop()
-        engine.inputNode.removeTap(onBus: 0)
+        engine = nil
         running = false
         onLevel(0)
     }
 
     private func begin() {
         guard wantsRunning, !running else { return }
+        let engine = AVAudioEngine()
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0 else { return }
@@ -50,6 +50,7 @@ final class SetupAudioMeter {
         engine.prepare()
         do {
             try engine.start()
+            self.engine = engine
             running = true
         } catch {
             input.removeTap(onBus: 0)
@@ -68,10 +69,11 @@ final class Listener {
     private(set) var enabled = false
 
     private var recognizer = SFSpeechRecognizer(locale: Locale(identifier: Registry.locale))
-    private let engine = AVAudioEngine()
+    private(set) var engine: AVAudioEngine?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var silenceTimer: Task<Void, Never>?
+    private var retryTask: Task<Void, Never>?
     private var last = ""
 
     static func requestPermissions(then done: @escaping @MainActor () -> Void) {
@@ -105,12 +107,20 @@ final class Listener {
 
     private func begin() {
         guard enabled, request == nil else { return }
+        retryTask?.cancel()
+        retryTask = nil
         last = ""
+        guard let recognizer, recognizer.isAvailable,
+              SFSpeechRecognizer.authorizationStatus() == .authorized,
+              AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+            retry(after: 5)
+            return
+        }
+        let engine = AVAudioEngine()
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
-        guard let recognizer, recognizer.isAvailable, format.sampleRate > 0,
-              SFSpeechRecognizer.authorizationStatus() == .authorized else {
-            log("cannot listen: locale=\(recognizer?.locale.identifier ?? "unsupported") available=\(recognizer?.isAvailable ?? false) speechAuth=\(SFSpeechRecognizer.authorizationStatus().rawValue) micAuth=\(AVCaptureDevice.authorizationStatus(for: .audio).rawValue) input=\(format.sampleRate)Hz")
+        guard format.sampleRate > 0 else {
+            log("cannot listen: input=\(format.sampleRate)Hz")
             retry(after: 5)
             return
         }
@@ -121,6 +131,7 @@ final class Listener {
         req.shouldReportPartialResults = true
         req.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
         request = req
+        self.engine = engine
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             req.append(buffer)
             let level = AudioLevel.from(buffer)
@@ -168,21 +179,29 @@ final class Listener {
     }
 
     private func end() {
+        retryTask?.cancel()
+        retryTask = nil
         silenceTimer?.cancel()
         silenceTimer = nil
         request?.endAudio()
         request = nil
-        engine.stop()
-        engine.inputNode.removeTap(onBus: 0)
+        // Never access inputNode on an idle engine: doing so creates audio I/O.
+        if let engine {
+            engine.stop()
+            engine.inputNode.removeTap(onBus: 0)
+        }
+        engine = nil
         task?.cancel()
         task = nil
         onLevel(0)
     }
 
     private func retry(after seconds: Double) {
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            self.begin()
+        retryTask?.cancel()
+        retryTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+            catch { return }
+            self?.begin()
         }
     }
 }

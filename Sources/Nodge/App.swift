@@ -29,7 +29,7 @@ final class NodgePanel: NSPanel {
 @MainActor
 final class Controller: NSObject {
     private static let activationDuration: UInt64 = 20_000_000_000
-    static let resultDuration: UInt64 = 12_000_000_000
+    static let resultDuration: UInt64 = 4_000_000_000
     /// Keep the glass surface's top rim beyond the display so every HUD state
     /// reads as a continuation of the screen edge rather than a bordered card.
     private static let displayTopOverlap: CGFloat = 2
@@ -142,6 +142,10 @@ final class Controller: NSObject {
     }
 
     private func resizePanel(for shape: HUDModel.Shape) {
+        if shape == .hidden {
+            setupAudioMeter.stop()
+            if AppSettings.shared.activationMode == .shortcut { finishVoiceSession() }
+        }
         guard let screen = panel.screen ?? NSScreen.main else { return }
         let contentTopInset = HUDLayout.contentTopInset(
             safeAreaTop: screen.safeAreaInsets.top,
@@ -216,7 +220,7 @@ final class Controller: NSObject {
 
     @objc private func toggleOverlay() {
         guard hud.shape != .setup else { return }
-        if active || Date() < followupUntil { cancelInput() }
+        if hud.shape != .hidden { cancelInput() }
         else { armInput() }
     }
 
@@ -232,12 +236,18 @@ final class Controller: NSObject {
         // return to the selected idle mode.
         if listenerConfigured { listener.setEnabled(false) }
         if AppSettings.shared.activationMode == .wakePhrase { listener.setEnabled(true) }
+        refreshPauseUI()
         hud.hide()
     }
 
     private func armInput() {
         guard hud.shape != .setup else { return }
-        Listener.requestPermissions { [weak self] in self?.beginArmedInput() }
+        generation += 1
+        let gen = generation
+        Listener.requestPermissions { [weak self] in
+            guard let self, self.generation == gen else { return }
+            self.beginArmedInput()
+        }
     }
 
     private func beginArmedInput() {
@@ -420,7 +430,8 @@ final class Controller: NSObject {
         } else {
             AppSettings.shared.setActivationMode(.wakePhrase)
             Listener.requestPermissions { [weak self] in
-                guard let self else { return }
+                guard let self, AppSettings.shared.activationMode == .wakePhrase,
+                      self.hud.shape != .setup else { return }
                 self.listener.setEnabled(true)
                 self.refreshPauseUI()
                 self.hud.show(.pill, title: AppSettings.shared.assistantLanguage.text(.wakePhraseOn))
@@ -511,6 +522,8 @@ final class Controller: NSObject {
         guard !heard.isEmpty else { hud.hide(); return }
         hud.updateTranscript(heard)
         hud.show(.pill, title: AppSettings.shared.assistantLanguage.text(.working))
+        listener.setEnabled(false)
+        refreshPauseUI()
         Task { @MainActor in
             do {
                 if let pending = self.pendingConfirm {
@@ -537,26 +550,29 @@ final class Controller: NSObject {
                 self.hud.show(.card, title: AppSettings.shared.assistantLanguage.text(.error), subtitle: error.localizedDescription)
             }
             guard self.generation == gen else { return }
-            let hold = self.holdHUD
             self.holdHUD = false
+            self.finishVoiceSession()
             await self.deliverFeedback(for: heard, generation: gen)
             guard self.generation == gen else { return }
-            self.followupUntil = Date().addingTimeInterval(12)
+            // A confirmation is still an unfinished task, so allow an answer
+            // while its prompt is visible. Completed tasks keep the mic off.
             if let pending = self.pendingConfirm {
+                self.followupUntil = Date().addingTimeInterval(20)
                 self.pendingConfirm = (pending.command, pending.heard, pending.probs, self.followupUntil)
-            }
-            try? await Task.sleep(nanoseconds: Self.resultDuration)
-            if self.generation == gen {
-                if hold, self.pendingConfirm != nil {
-                    self.pendingConfirm = nil
-                    self.hud.show(.card, title: "Not run", subtitle: "I didn’t receive confirmation, so I left everything unchanged.")
-                    await self.deliverFeedback(for: heard, generation: gen)
-                    try? await Task.sleep(nanoseconds: Self.resultDuration)
-                }
+                self.listener.setEnabled(true)
+                self.refreshPauseUI()
+                do { try await Task.sleep(nanoseconds: Self.activationDuration) }
+                catch { return }
                 guard self.generation == gen else { return }
-                self.hud.hide()
+                self.pendingConfirm = nil
                 self.finishVoiceSession()
+                self.hud.show(.card, title: "Not run", subtitle: "No confirmation received.")
             }
+            do { try await Task.sleep(nanoseconds: Self.resultDuration) }
+            catch { return }
+            guard self.generation == gen else { return }
+            self.pendingConfirm = nil
+            self.hud.hide()
         }
     }
 
