@@ -24,13 +24,19 @@ pnpm install:app
 pnpm update:app
 ```
 
-The first launch opens setup inside the notch. Choose a wake name, add one
-OpenRouter API key, select a voice, then grant Microphone, Speech Recognition,
+The first launch opens setup inside the notch. Choose the assistant language and
+voice activation mode, add one OpenRouter API key, then grant Microphone, Speech Recognition,
 Accessibility, and optionally Screen Recording.
 
-Choose any wake name in setup and say “Hey <name>” before a command. Press
-Option-Space to arm or hide Jev Nodge without a wake phrase, and Escape to dismiss
-the current surface.
+The selected assistant language controls speech recognition and the language of
+Jev's spoken replies. Spoken replies use MOSS-TTS-Nano locally. Its multilingual model is downloaded
+once on first use and then stays in the local cache. No speech-service account
+or voice API key is required.
+
+The microphone is off by default. Choose your voice shortcut in setup (default
+Fn alone) to activate Jev Nodge temporarily, and press Escape to dismiss the
+current surface. Always-on wake phrase detection is available as an explicit
+opt-in in setup and from the menu bar.
 
 Secrets are stored in macOS Keychain. Preferences use `UserDefaults`. Jev Nodge
 does not write API keys to project files.

@@ -1,12 +1,70 @@
 import AVFoundation
 import Speech
 
+/// A microphone-only level meter for setup. It does not create a speech
+/// recognizer or turn sound into commands.
+@MainActor
+final class SetupAudioMeter {
+    var onLevel: (Double) -> Void = { _ in }
+    private let engine = AVAudioEngine()
+    private var wantsRunning = false
+    private var running = false
+
+    func start() {
+        wantsRunning = true
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            begin()
+        case .notDetermined:
+            Task { @MainActor in
+                let granted = await AVCaptureDevice.requestAccess(for: .audio)
+                guard granted, self.wantsRunning else { return }
+                self.begin()
+            }
+        default:
+            onLevel(0)
+        }
+    }
+
+    func stop() {
+        wantsRunning = false
+        guard running else {
+            onLevel(0)
+            return
+        }
+        engine.stop()
+        engine.inputNode.removeTap(onBus: 0)
+        running = false
+        onLevel(0)
+    }
+
+    private func begin() {
+        guard wantsRunning, !running else { return }
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0 else { return }
+        input.installTap(onBus: 0, bufferSize: 1_024, format: format) { [weak self] buffer, _ in
+            let level = min(1, AudioLevel.from(buffer) * 1.25)
+            Task { @MainActor in self?.onLevel(level) }
+        }
+        engine.prepare()
+        do {
+            try engine.start()
+            running = true
+        } catch {
+            input.removeTap(onBus: 0)
+            log("setup audio meter failed: \(error.localizedDescription)")
+        }
+    }
+}
+
 /// Always-on speech recognition. An utterance ends after a short silence; onFinal then fires with its text
 /// and a fresh recognition session starts straight away.
 @MainActor
 final class Listener {
     var onPartial: (String) -> Void = { _ in }
     var onFinal: (String) -> Void = { _ in }
+    var onLevel: (Double) -> Void = { _ in }
     private(set) var enabled = false
 
     private var recognizer = SFSpeechRecognizer(locale: Locale(identifier: Registry.locale))
@@ -17,8 +75,16 @@ final class Listener {
     private var last = ""
 
     static func requestPermissions(then done: @escaping @MainActor () -> Void) {
-        SFSpeechRecognizer.requestAuthorization { _ in
-            AVCaptureDevice.requestAccess(for: .audio) { _ in Task { @MainActor in done() } }
+        Task { @MainActor in
+            if SFSpeechRecognizer.authorizationStatus() == .notDetermined {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    SFSpeechRecognizer.requestAuthorization { _ in continuation.resume() }
+                }
+            }
+            if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+                _ = await AVCaptureDevice.requestAccess(for: .audio)
+            }
+            done()
         }
     }
 
@@ -50,10 +116,16 @@ final class Listener {
         }
 
         let req = SFSpeechAudioBufferRecognitionRequest()
+        let name = AppSettings.shared.wakePhrase.trimmingCharacters(in: .whitespacesAndNewlines)
+        req.contextualStrings = [name, "Hey \(name)"]
         req.shouldReportPartialResults = true
         req.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
         request = req
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in req.append(buffer) }
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+            req.append(buffer)
+            let level = AudioLevel.from(buffer)
+            Task { @MainActor in self?.onLevel(level) }
+        }
         engine.prepare()
         do { try engine.start() } catch {
             log("audio engine failed: \(error)")
@@ -104,6 +176,7 @@ final class Listener {
         engine.inputNode.removeTap(onBus: 0)
         task?.cancel()
         task = nil
+        onLevel(0)
     }
 
     private func retry(after seconds: Double) {
@@ -111,5 +184,31 @@ final class Listener {
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             self.begin()
         }
+    }
+}
+
+enum AudioLevel {
+    /// Maps a practical speech range onto 0...1 while rejecting ordinary room noise.
+    static func normalized(decibels: Float) -> Double {
+        let linear = min(1, max(0, Double((decibels + 52) / 44)))
+        return linear * linear * (3 - 2 * linear)
+    }
+
+    static func from(_ buffer: AVAudioPCMBuffer) -> Double {
+        guard let channels = buffer.floatChannelData, buffer.frameLength > 0 else { return 0 }
+        let frames = Int(buffer.frameLength)
+        let channelCount = max(1, Int(buffer.format.channelCount))
+        var sum: Float = 0
+        if buffer.format.isInterleaved {
+            let samples = channels[0]
+            for sample in 0..<(frames * channelCount) { sum += samples[sample] * samples[sample] }
+        } else {
+            for channel in 0..<channelCount {
+                let samples = channels[channel]
+                for frame in 0..<frames { sum += samples[frame] * samples[frame] }
+            }
+        }
+        let rms = sqrt(sum / Float(frames * channelCount))
+        return normalized(decibels: 20 * log10(max(rms, 0.000_001)))
     }
 }

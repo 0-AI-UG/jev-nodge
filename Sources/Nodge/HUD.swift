@@ -1,5 +1,44 @@
 import SwiftUI
 
+enum HUDLayout {
+    /// A fixed fallback keeps content clear of the camera housing when macOS
+    /// does not report a safe-area inset, as can happen while displays change.
+    static let minimumContentTopInset: CGFloat = 34
+    private static let cameraClearance: CGFloat = 4
+
+    static func contentTopInset(safeAreaTop: CGFloat, displayTopOverlap: CGFloat) -> CGFloat {
+        max(
+            minimumContentTopInset,
+            ceil(max(0, safeAreaTop) + max(0, displayTopOverlap) + cameraClearance)
+        )
+    }
+
+    static func topPadding(for shape: HUDModel.Shape, contentTopInset: CGFloat) -> CGFloat {
+        switch shape {
+        case .hidden: 0
+        case .pill, .card: max(minimumContentTopInset, contentTopInset)
+        case .setup: max(56, contentTopInset)
+        }
+    }
+
+    static func panelSize(for shape: HUDModel.Shape, contentTopInset: CGFloat) -> CGSize {
+        let baseSize: CGSize
+        let previousTopPadding: CGFloat
+        switch shape {
+        case .hidden:
+            return CGSize(width: 390, height: 12)
+        case .pill:
+            (baseSize, previousTopPadding) = (CGSize(width: 410, height: 150), 32)
+        case .card:
+            (baseSize, previousTopPadding) = (CGSize(width: 430, height: 245), 18)
+        case .setup:
+            (baseSize, previousTopPadding) = (CGSize(width: 390, height: 314), 56)
+        }
+        let addedClearance = max(0, topPadding(for: shape, contentTopInset: contentTopInset) - previousTopPadding)
+        return CGSize(width: baseSize.width, height: baseSize.height + addedClearance)
+    }
+}
+
 @MainActor
 final class HUDModel: ObservableObject {
     enum Shape { case hidden, pill, card, setup }
@@ -7,15 +46,25 @@ final class HUDModel: ObservableObject {
     @Published var shape: Shape = .hidden
     @Published var title = "Listening"
     @Published var subtitle = ""
+    @Published var transcript = ""
     @Published var hint = ""
     @Published var probs: [Double] = []
     @Published var pulse = false
+    @Published private(set) var audioLevel = 0.0
     @Published var setupError = ""
     @Published var setupStep = 0
+    @Published var recordingShortcut = false
     @Published var openRouterKey = ""
-    @Published var elevenLabsKey = ""
+    @Published private(set) var hasStoredOpenRouterKey = false
+    @Published private(set) var contentTopInset = HUDLayout.minimumContentTopInset
+    private var audioTarget = 0.0
+    private var audioSmoothingTask: Task<Void, Never>?
     var onSetupComplete: (() -> Void)?
     var onShapeChange: ((Shape) -> Void)?
+
+    func updateContentTopInset(_ inset: CGFloat) {
+        contentTopInset = inset
+    }
 
     func show(_ shape: Shape, title: String, subtitle: String = "", hint: String = "", probs: [Double] = []) {
         withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
@@ -29,8 +78,42 @@ final class HUDModel: ObservableObject {
     }
 
     func hide() {
-        withAnimation(.spring(response: 0.46, dampingFraction: 0.7)) { shape = .hidden }
+        audioTarget = 0
+        audioSmoothingTask?.cancel()
+        audioSmoothingTask = nil
+        withAnimation(.spring(response: 0.46, dampingFraction: 0.7)) {
+            shape = .hidden
+            audioLevel = 0
+        }
         onShapeChange?(.hidden)
+    }
+
+    func beginInput() {
+        transcript = ""
+    }
+
+    func updateTranscript(_ text: String) {
+        transcript = text
+    }
+
+    func setAudioLevel(_ level: Double) {
+        audioTarget = min(1, max(0, level))
+        guard audioSmoothingTask == nil else { return }
+        audioSmoothingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                let difference = self.audioTarget - self.audioLevel
+                if abs(difference) < 0.001 {
+                    self.audioLevel = self.audioTarget
+                } else {
+                    // A fixed-rate envelope prevents irregular microphone callbacks
+                    // from directly retargeting SwiftUI animations and flickering.
+                    let response = difference > 0 ? 0.07 : 0.045
+                    self.audioLevel += difference * response
+                }
+                try? await Task.sleep(nanoseconds: 16_666_667)
+            }
+        }
     }
 
     func confirm() {
@@ -40,7 +123,9 @@ final class HUDModel: ObservableObject {
 
     func finishSetup() {
         do {
-            try AppSettings.shared.save(openRouterKey: openRouterKey, elevenLabsKey: elevenLabsKey)
+            let replacementKey = openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            try AppSettings.shared.save(openRouterKey: replacementKey.isEmpty ? nil : replacementKey)
+            hasStoredOpenRouterKey = true
             setupError = ""
             onSetupComplete?()
         } catch {
@@ -52,28 +137,40 @@ final class HUDModel: ObservableObject {
         setupError = ""
         switch setupStep {
         case 0:
-            guard !AppSettings.shared.wakePhrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                AppSettings.shared.wakePhrase = ""
-                setupError = "Choose a wake name"
-                return
-            }
             withAnimation(.spring(response: 0.46, dampingFraction: 0.78)) { setupStep = 1 }
         case 1:
-            guard !openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                openRouterKey = ""
-                setupError = "Add an OpenRouter API key"
+            withAnimation(.spring(response: 0.46, dampingFraction: 0.78)) { setupStep = 2 }
+        case 2:
+            guard AppSettings.shared.activationMode != .wakePhrase ||
+                    !AppSettings.shared.wakePhrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                AppSettings.shared.wakePhrase = ""
+                setupError = AppSettings.shared.assistantLanguage.text(.chooseWakeName)
                 return
             }
-            withAnimation(.spring(response: 0.46, dampingFraction: 0.78)) { setupStep = 2 }
-        default:
+            recordingShortcut = false
+            withAnimation(.spring(response: 0.46, dampingFraction: 0.78)) { setupStep = 3 }
+        case 3:
+            guard hasStoredOpenRouterKey || !openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                openRouterKey = ""
+                setupError = AppSettings.shared.assistantLanguage.text(.addOpenRouterKey)
+                return
+            }
             finishSetup()
+        default:
+            break
         }
     }
 
     func retreatSetup() {
+        recordingShortcut = false
         guard setupStep > 0 else { return }
         setupError = ""
         withAnimation(.spring(response: 0.46, dampingFraction: 0.78)) { setupStep -= 1 }
+    }
+
+    func prepareSetup() {
+        openRouterKey = ""
+        hasStoredOpenRouterKey = AppSettings.shared.openRouterKey != nil
     }
 }
 
@@ -88,11 +185,17 @@ struct HUDView: View {
             case .pill:
                 CompactView(model: model)
                     .padding(.bottom, 28)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .transition(.asymmetric(
+                        insertion: .opacity,
+                        removal: .scale(scale: 0.96, anchor: .top).combined(with: .opacity)
+                    ))
             case .card:
                 ResultView(model: model)
                     .padding(.bottom, 28)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .transition(.asymmetric(
+                        insertion: .opacity,
+                        removal: .scale(scale: 0.96, anchor: .top).combined(with: .opacity)
+                    ))
             case .setup:
                 SetupView(model: model)
                     .padding(.horizontal, 30)
@@ -111,10 +214,20 @@ private struct CompactView: View {
 
     var body: some View {
         HStack(spacing: 11) {
-            ListeningBars(active: model.title.localizedCaseInsensitiveContains("listen"))
-            Text(model.title)
-                .font(.system(size: 14, weight: .medium, design: .rounded))
-                .lineLimit(1)
+            ListeningBars(active: model.title.localizedCaseInsensitiveContains("listen"), level: model.audioLevel)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.title)
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .lineLimit(1)
+                if !model.transcript.isEmpty {
+                    Text(model.transcript)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.white.opacity(0.62))
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 6)
             Circle()
                 .fill(model.title.localizedCaseInsensitiveContains("listen") ? Color.white : Color.white.opacity(0.35))
@@ -122,8 +235,11 @@ private struct CompactView: View {
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 18)
-        .frame(width: 350, height: 54)
-        .nodgeSurface(bottomRadius: 16)
+        .padding(.top, HUDLayout.topPadding(for: .pill, contentTopInset: model.contentTopInset))
+        .padding(.bottom, 14)
+        .frame(width: 350)
+        .frame(minHeight: 86)
+        .nodgeSurface(bottomRadius: 16, audioLevel: model.audioLevel)
     }
 }
 
@@ -131,16 +247,29 @@ private struct ResultView: View {
     @ObservedObject var model: HUDModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "waveform")
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(.white.opacity(0.8))
+                    .padding(.top, 2)
                 Text(model.title)
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .lineLimit(1)
-                Spacer()
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.82)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .layoutPriority(1)
+                Spacer(minLength: 4)
                 ConfidenceDots(values: model.probs)
+                    .padding(.top, 7)
+                    .fixedSize()
+            }
+            if !model.transcript.isEmpty {
+                Text(model.transcript)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if !model.subtitle.isEmpty {
                 Text(model.subtitle)
@@ -155,12 +284,12 @@ private struct ResultView: View {
                     .foregroundStyle(.white.opacity(0.38))
             }
         }
-        .padding(.horizontal, 22)
-        .padding(.top, 22)
-        .padding(.bottom, 20)
-        .frame(width: 460, alignment: .topLeading)
-        .frame(minHeight: 118, alignment: .topLeading)
-        .nodgeSurface(bottomRadius: 18)
+        .padding(.horizontal, 20)
+        .padding(.top, HUDLayout.topPadding(for: .card, contentTopInset: model.contentTopInset))
+        .padding(.bottom, 18)
+        .frame(width: 390, alignment: .topLeading)
+        .frame(minHeight: 108, alignment: .topLeading)
+        .nodgeSurface(bottomRadius: 16, audioLevel: model.audioLevel)
         .scaleEffect(model.pulse ? 1.015 : 1, anchor: .top)
     }
 }
@@ -174,12 +303,20 @@ private struct SetupView: View {
             Text(stepTitle)
                 .font(.system(size: 15.5, weight: .semibold))
                 .multilineTextAlignment(.center)
-                .padding(.top, 22)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .allowsTightening(true)
+                .frame(maxWidth: .infinity, minHeight: 22, alignment: .bottom)
+                .padding(.horizontal, 8)
+                .padding(.top, HUDLayout.topPadding(for: .setup, contentTopInset: model.contentTopInset))
 
             Text(stepSubtitle)
                 .font(.system(size: 10))
                 .foregroundStyle(.white.opacity(0.52))
                 .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.82)
+                .frame(maxWidth: .infinity, minHeight: 24, alignment: .top)
                 .padding(.top, 3)
 
             StepDots(current: model.setupStep)
@@ -193,9 +330,9 @@ private struct SetupView: View {
                         removal: .offset(x: -12).combined(with: .opacity)
                     ))
             }
-            .frame(height: 56)
+            .frame(height: 76)
 
-            if model.setupStep == 2 && !model.setupError.isEmpty {
+            if model.setupStep == 3 && !model.setupError.isEmpty {
                 Text(model.setupError)
                     .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(.white.opacity(0.65))
@@ -208,13 +345,13 @@ private struct SetupView: View {
                     Button(action: model.retreatSetup) {
                         Image(systemName: "chevron.left")
                             .frame(width: 12, height: 16)
-                            .accessibilityLabel("Back")
+                            .accessibilityLabel(settings.assistantLanguage.text(.back))
                     }
-                    .help("Back")
+                    .help(settings.assistantLanguage.text(.back))
                     .modifier(SetupButtonAppearance(primary: false))
                 }
                 Button(action: model.advanceSetup) {
-                    Text(model.setupStep == 2 ? "Start" : "Continue")
+                    Text(settings.assistantLanguage.text(model.setupStep == 3 ? .startButton : .continueButton))
                         .frame(height: 16)
                 }
                 .modifier(SetupButtonAppearance(primary: true))
@@ -226,30 +363,34 @@ private struct SetupView: View {
         .foregroundStyle(.white)
         .environment(\.colorScheme, .dark)
         .padding(.horizontal, 22)
-        .frame(width: 330, height: 180)
-        .animatedNodgeSurface(bottomRadius: 18)
+        .frame(width: 330, height: 250)
+        .nodgeSurface(bottomRadius: 18, audioLevel: model.audioLevel)
         .animation(.spring(response: 0.46, dampingFraction: 0.78), value: model.setupStep)
         .onChange(of: settings.wakePhrase) { _, value in
-            if model.setupStep == 0 && !value.isEmpty { model.setupError = "" }
+            if model.setupStep == 2 && !value.isEmpty { model.setupError = "" }
         }
         .onChange(of: model.openRouterKey) { _, value in
-            if model.setupStep == 1 && !value.isEmpty { model.setupError = "" }
+            if model.setupStep == 3 && !value.isEmpty { model.setupError = "" }
         }
     }
 
     private var stepTitle: String {
         switch model.setupStep {
-        case 0: return "Wake Jev Nodge"
-        case 1: return "Connect OpenRouter"
-        default: return "Choose a voice"
+        case 0: return settings.assistantLanguage.text(.assistantLanguage)
+        case 1: return settings.assistantLanguage.text(.voiceActivation)
+        case 2: return settings.assistantLanguage.text(.voiceShortcut)
+        default: return settings.assistantLanguage.text(.connectOpenRouter)
         }
     }
 
     private var stepSubtitle: String {
         switch model.setupStep {
-        case 0: return "Pick a short name that feels natural to say."
-        case 1: return "Your key stays in the macOS Keychain."
-        default: return "Jev Nodge will speak AI answers using this voice."
+        case 0: return settings.assistantLanguage.text(.languageSubtitle)
+        case 1: return settings.activationMode == .shortcut
+            ? settings.assistantLanguage.text(.microphoneOff)
+            : settings.assistantLanguage.text(.wakeActive)
+        case 2: return settings.assistantLanguage.text(.shortcutSubtitle)
+        default: return settings.assistantLanguage.text(.connectSubtitle)
         }
     }
 
@@ -257,26 +398,81 @@ private struct SetupView: View {
     private var stepContent: some View {
         switch model.setupStep {
         case 0:
-            HStack(spacing: 10) {
-                Text("Hey")
-                    .foregroundStyle(.white.opacity(0.42))
-                TextField("Wake name", text: $settings.wakePhrase,
-                          prompt: Text(model.setupError.isEmpty ? "Jev" : model.setupError)
-                            .foregroundStyle(.white.opacity(0.6)))
-                    .accessibilityLabel("Wake name")
-                    .accessibilityHint(model.setupError)
-                    .textFieldStyle(.plain)
-                    .frame(maxWidth: 170)
+            HStack(spacing: 0) {
+                Button {
+                    moveLanguage(by: -1)
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .frame(width: 40, height: 32)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(settings.assistantLanguage.text(.previousLanguage))
+
+                Text(settings.assistantLanguage.label)
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .contentTransition(.numericText())
+
+                Button {
+                    moveLanguage(by: 1)
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .frame(width: 40, height: 32)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(settings.assistantLanguage.text(.nextLanguage))
             }
-            .font(.system(size: 13.5, weight: .medium))
-            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity)
             .frame(height: 32)
             .setupField()
         case 1:
-            SecureField("OpenRouter API key", text: $model.openRouterKey,
-                        prompt: Text(model.setupError.isEmpty ? "sk-or-v1-…" : model.setupError)
+            ActivationModeControl(selection: $settings.activationMode, language: settings.assistantLanguage)
+        case 2:
+            HStack(spacing: 8) {
+                if settings.activationMode == .wakePhrase {
+                    HStack(spacing: 9) {
+                        Text("Hey")
+                            .foregroundStyle(.white.opacity(0.42))
+                        TextField(settings.assistantLanguage.text(.wakeName), text: $settings.wakePhrase,
+                                  prompt: Text(model.setupError.isEmpty ? "Jev" : model.setupError)
+                                    .foregroundStyle(.white.opacity(0.6)))
+                            .accessibilityLabel(settings.assistantLanguage.text(.wakeName))
+                            .accessibilityHint(model.setupError)
+                            .textFieldStyle(.plain)
+                            .lineLimit(1)
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 32)
+                    .setupField()
+                }
+
+                Button {
+                    model.recordingShortcut.toggle()
+                } label: {
+                    Text(model.recordingShortcut ? "Press…" : settings.voiceShortcut.label)
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 32)
+                        .setupField()
+                }
+                .frame(
+                    minWidth: settings.activationMode == .wakePhrase ? 82 : 0,
+                    maxWidth: settings.activationMode == .wakePhrase ? 82 : .infinity
+                )
+                .buttonStyle(.plain)
+                .accessibilityLabel("Record voice shortcut")
+            }
+        case 3:
+            SecureField(settings.assistantLanguage.text(.addOpenRouterKey), text: $model.openRouterKey,
+                        prompt: Text(model.setupError.isEmpty
+                            ? (model.hasStoredOpenRouterKey ? "••••••••••••" : "sk-or-v1-…")
+                            : model.setupError)
                             .foregroundStyle(.white.opacity(0.6)))
-                .accessibilityLabel("OpenRouter API key")
+                .accessibilityLabel(settings.assistantLanguage.text(.addOpenRouterKey))
                 .accessibilityHint(model.setupError)
                 .textFieldStyle(.plain)
                 .font(.system(size: 11, design: .monospaced))
@@ -284,26 +480,66 @@ private struct SetupView: View {
                 .frame(height: 32)
                 .setupField()
         default:
-            VStack(spacing: 6) {
-                Picker("Voice", selection: $settings.voiceProvider) {
-                    ForEach(AppSettings.VoiceProvider.allCases) { provider in
-                        Text(provider.rawValue).tag(provider)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-
-                if settings.voiceProvider == .elevenLabs {
-                    HStack(spacing: 8) {
-                        SecureField("ElevenLabs key", text: $model.elevenLabsKey)
-                        TextField("Voice ID", text: $settings.elevenLabsVoiceID)
-                    }
-                    .textFieldStyle(.roundedBorder)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                }
-
-            }
+            EmptyView()
         }
+    }
+
+    private func moveLanguage(by offset: Int) {
+        let languages = AssistantLanguage.allCases
+        guard let current = languages.firstIndex(of: settings.assistantLanguage) else { return }
+        settings.assistantLanguage = languages[(current + offset + languages.count) % languages.count]
+    }
+}
+
+private struct ActivationModeControl: View {
+    @Binding var selection: AppSettings.ActivationMode
+    let language: AssistantLanguage
+
+    var body: some View {
+        HStack(spacing: 3) {
+            option(.shortcut, title: language.text(.shortcutOnly))
+            option(.wakePhrase, title: language.text(.wakePhrase))
+        }
+        .padding(3)
+        .frame(height: 40)
+        .background(.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(.white.opacity(0.08), lineWidth: 0.6)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func option(_ mode: AppSettings.ActivationMode, title: String) -> some View {
+        let selected = selection == mode
+        return Button {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                selection = mode
+            }
+        } label: {
+            Text(title)
+                .font(.system(size: 12.5, weight: selected ? .semibold : .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(selected ? 1 : 0.58))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .background {
+                    if selected {
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(LinearGradient(
+                                colors: [.white.opacity(0.20), .white.opacity(0.10)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .strokeBorder(.white.opacity(0.20), lineWidth: 0.6)
+                            }
+                            .shadow(color: .black.opacity(0.4), radius: 5, y: 2)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
@@ -312,7 +548,7 @@ private struct StepDots: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            ForEach(0..<3, id: \.self) { index in
+            ForEach(0..<4, id: \.self) { index in
                 Capsule()
                     .fill(index == current ? .white : .white.opacity(0.18))
                     .frame(width: index == current ? 14 : 4, height: 4)
@@ -347,14 +583,16 @@ private struct SetupButtonAppearance: ViewModifier {
 
 private struct ListeningBars: View {
     let active: Bool
+    let level: Double
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 0.12)) { timeline in
             let phase = timeline.date.timeIntervalSinceReferenceDate
             HStack(spacing: 2) {
                 ForEach(0..<4, id: \.self) { index in
+                    let voice = level * (0.72 + 0.28 * abs(sin(phase * 7 + Double(index) * 1.7)))
                     Capsule()
-                        .frame(width: 2.5, height: active ? 6 + 8 * abs(sin(phase * 4 + Double(index))) : 6)
+                        .frame(width: 2.5, height: active ? 5 + 11 * max(voice, 0.12) : 6)
                 }
             }
         }
@@ -379,72 +617,51 @@ private struct ConfidenceDots: View {
 
 /// A white source splits into animated spectral plumes above the bottom edge.
 private struct PrismaticGlow: View {
+    let level: Double
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { timeline in
+        TimelineView(.animation(minimumInterval: 1 / 60, paused: reduceMotion)) { timeline in
             let time = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
             Canvas { context, size in
-                let breath = 0.95 + 0.05 * sin(time * 1.6)
-                let center = size.width * 0.5
-                let span = size.width * 0.40
-
-                func ribbon(_ color: Color, offset: Double, width: Double, blur: Double, opacity: Double, whiteBeam: Bool = false) {
-                    var path = Path()
-                    for index in 0...96 {
-                        let u = Double(index) / 96
-                        let x = center + (u * 2 - 1) * span
-                        let envelope = pow(sin(u * .pi), 2)
-                        let flare = sin(u * .pi * 3 - time * 1.8)
-                        let convergence = min(1, max(0, (u - 0.25) / 0.45))
-                        let blend = convergence * convergence * (3 - 2 * convergence)
-                        let spread = offset + (5 - offset) * blend
-                        let wave = 1.2 + spread * 0.2 * flare
-                        let y = size.height - 1.8 - envelope * (wave + spread)
-                        let point = CGPoint(x: x, y: y)
-                        if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
-                    }
-                    var layer = context
-                    layer.addFilter(.blur(radius: blur))
-                    layer.opacity = opacity * breath
-                    layer.stroke(path, with: .linearGradient(
-                        Gradient(stops: [
-                            .init(color: .clear, location: 0),
-                            .init(color: whiteBeam ? .clear : color.opacity(0.85), location: 0.18),
-                            .init(color: whiteBeam ? color.opacity(0.7) : color, location: 0.5),
-                            .init(color: whiteBeam ? .white : color.opacity(0.25), location: 0.72),
-                            .init(color: whiteBeam ? color.opacity(0.9) : .clear, location: 0.88),
-                            .init(color: .clear, location: 1),
-                        ]),
-                        startPoint: CGPoint(x: center - span, y: 0),
-                        endPoint: CGPoint(x: center + span, y: 0)
-                    ), style: StrokeStyle(lineWidth: width, lineCap: .round))
-                }
-
-                // A shared curve keeps the spectrum ordered while overlapping
-                // soft ribbons and a wider halo merge the bands into light.
-                let spectrum: [(Color, Double)] = [
-                    (Color(red: 1, green: 0.02, blue: 0.16), 21),
-                    (Color(red: 1, green: 0.42, blue: 0), 17.5),
-                    (Color(red: 1, green: 0.95, blue: 0), 14),
-                    (Color(red: 0.12, green: 1, blue: 0.22), 10.5),
-                    (Color(red: 0, green: 0.95, blue: 1), 7),
-                    (Color(red: 0.06, green: 0.16, blue: 1), 3.5),
-                ]
-                for (color, offset) in spectrum {
-                    ribbon(color, offset: offset, width: 8, blur: 9, opacity: 0.48)
-                }
-                for (color, offset) in spectrum {
-                    ribbon(color, offset: offset, width: 4.5, blur: 3.2, opacity: 0.95)
-                }
-                ribbon(.white, offset: 5, width: 12, blur: 9, opacity: 0.7, whiteBeam: true)
-                ribbon(.white, offset: 5, width: 5, blur: 3, opacity: 0.95, whiteBeam: true)
-                ribbon(.white, offset: 5, width: 2.5, blur: 0.8, opacity: 1, whiteBeam: true)
+                PrismaticGlowRenderer.draw(
+                    in: context,
+                    size: size,
+                    level: level,
+                    time: time,
+                    reduceMotion: reduceMotion
+                )
             }
         }
         .frame(height: 42)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+private struct NodgeSideAndBottomOutline: Shape {
+    let bottomRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let inset = 0.3
+        let left = rect.minX + inset
+        let right = rect.maxX - inset
+        let bottom = rect.maxY - inset
+        let radius = min(bottomRadius, rect.width / 2, rect.height)
+        var path = Path()
+        path.move(to: CGPoint(x: left, y: rect.minY))
+        path.addLine(to: CGPoint(x: left, y: bottom - radius))
+        path.addQuadCurve(
+            to: CGPoint(x: left + radius, y: bottom),
+            control: CGPoint(x: left, y: bottom)
+        )
+        path.addLine(to: CGPoint(x: right - radius, y: bottom))
+        path.addQuadCurve(
+            to: CGPoint(x: right, y: bottom - radius),
+            control: CGPoint(x: right, y: bottom)
+        )
+        path.addLine(to: CGPoint(x: right, y: rect.minY))
+        return path
     }
 }
 
@@ -460,34 +677,7 @@ private extension View {
             }
     }
 
-    func nodgeSurface(bottomRadius: CGFloat) -> some View {
-        let shape = UnevenRoundedRectangle(
-            cornerRadii: .init(
-                topLeading: 0,
-                bottomLeading: bottomRadius,
-                bottomTrailing: bottomRadius,
-                topTrailing: 0
-            ),
-            style: .continuous
-        )
-        return background {
-            ZStack {
-                shape.fill(.black)
-                LinearGradient(
-                    colors: [.black, .black, .white.opacity(0.045)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .clipShape(shape)
-            }
-        }
-        .overlay {
-            shape.strokeBorder(.white.opacity(0.07), lineWidth: 0.6)
-        }
-        .shadow(color: .black.opacity(0.45), radius: 18, y: 10)
-    }
-
-    func animatedNodgeSurface(bottomRadius: CGFloat) -> some View {
+    func nodgeSurface(bottomRadius: CGFloat, audioLevel: Double) -> some View {
         let shape = UnevenRoundedRectangle(
             cornerRadii: .init(
                 topLeading: 0,
@@ -513,10 +703,20 @@ private extension View {
                     .init(color: .black.opacity(0.85), location: 0.38),
                     .init(color: .black.opacity(0.25), location: 1),
                 ], startPoint: .top, endPoint: .bottom)
-                PrismaticGlow()
+                PrismaticGlow(level: audioLevel)
             }
             .clipShape(shape)
             .environment(\.colorScheme, .dark)
+        }
+        .overlay(alignment: .top) {
+            Color.black
+                .frame(height: 1)
+                .allowsHitTesting(false)
+        }
+        .overlay {
+            NodgeSideAndBottomOutline(bottomRadius: bottomRadius)
+                .stroke(.white.opacity(0.1), style: StrokeStyle(lineWidth: 0.6, lineCap: .butt))
+                .allowsHitTesting(false)
         }
         .shadow(color: .black.opacity(0.6), radius: 18, y: 10)
     }

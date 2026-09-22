@@ -25,11 +25,17 @@ final class NodgePanel: NSPanel {
     }
 }
 
-/// Pipeline: always listening → utterance → Jev scores the options → decision → OS action.
+/// Pipeline: explicit voice activation → utterance → Jev scores the options → decision → OS action.
 @MainActor
 final class Controller: NSObject {
+    private static let activationDuration: UInt64 = 20_000_000_000
+    static let resultDuration: UInt64 = 12_000_000_000
+    /// Keep the glass surface's top rim beyond the display so every HUD state
+    /// reads as a continuation of the screen edge rather than a bordered card.
+    private static let displayTopOverlap: CGFloat = 2
     private let hud = HUDModel()
     private lazy var listener = Listener()
+    private let setupAudioMeter = SetupAudioMeter()
     private var listenerConfigured = false
     private var panel: NSPanel!
     private var statusItem: NSStatusItem!
@@ -46,8 +52,10 @@ final class Controller: NSObject {
     private var screenSource = "accessibility"
     private var screenScan: Task<Void, Never>?
     private var followupUntil = Date.distantPast
+    private var listeningTimeout: Task<Void, Never>?
     private var globalKeyMonitor: Any?
     private var localKeyMonitor: Any?
+    private var fnTap = FnTap()
     private let dumpSignal = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
 
     func start() {
@@ -63,25 +71,30 @@ final class Controller: NSObject {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         panel.contentView = NSHostingView(rootView: HUDView(model: hud))
         if let screen = NSScreen.main?.frame {
-            panel.setFrameOrigin(NSPoint(x: screen.midX - 195, y: screen.maxY - 240))
+            panel.setFrameOrigin(NSPoint(
+                x: screen.midX - 195,
+                y: screen.maxY - 240 + Self.displayTopOverlap
+            ))
         }
         panel.orderFrontRegardless()
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = menuBarIcon(paused: false)
+        statusItem.button?.image = menuBarIcon(microphoneActive: false)
         let menu = NSMenu()
-        let pause = menu.addItem(withTitle: "Pause listening", action: #selector(togglePause(_:)), keyEquivalent: "p")
-        pause.target = self
-        let show = menu.addItem(withTitle: "Show or hide Jev Nodge", action: #selector(toggleOverlay), keyEquivalent: " ")
+        let wake = menu.addItem(withTitle: "Enable wake phrase", action: #selector(toggleWakePhrase(_:)), keyEquivalent: "p")
+        wake.target = self
+        let show = menu.addItem(withTitle: "Start voice input", action: #selector(toggleOverlay), keyEquivalent: "")
         show.target = self
         show.keyEquivalentModifierMask = [.option]
         menu.addItem(.separator())
         menu.addItem(withTitle: "Setup…", action: #selector(openSetup), keyEquivalent: ",").target = self
+        menu.addItem(withTitle: "Enable Accessibility…", action: #selector(openAccessibility), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Edit commands…", action: #selector(openConfig), keyEquivalent: "e").target = self
         menu.addItem(withTitle: "Open log", action: #selector(openLog), keyEquivalent: "l").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Jev Nodge", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         statusItem.menu = menu
+        localizeMenu()
 
         // `kill -USR1 $(pgrep -x Nodge)` writes the current UI tree to ~/Library/Logs/Nodge-ui.log.
         signal(SIGUSR1, SIG_IGN)
@@ -105,52 +118,97 @@ final class Controller: NSObject {
 
         hud.onSetupComplete = { [weak self] in
             guard let self else { return }
+            self.setupAudioMeter.stop()
             self.panel.resignKey()
+            self.reloadConfig(announce: false)
+            self.localizeMenu()
             self.startListening()
+            VoiceResponder.shared.prepare()
         }
         hud.onShapeChange = { [weak self] shape in self?.resizePanel(for: shape) }
+        VoiceResponder.shared.onLevel = { [weak self] level in self?.hud.setAudioLevel(level) }
+        setupAudioMeter.onLevel = { [weak self] level in self?.hud.setAudioLevel(level) }
+        if AppSettings.shared.setupComplete {
+            VoiceResponder.shared.prepare()
+        }
 
-        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
             Task { @MainActor in self?.handleKey(event) }
         }
-        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
             guard let self else { return event }
             return self.handleKey(event) ? nil : event
         }
     }
 
     private func resizePanel(for shape: HUDModel.Shape) {
-        let size: NSSize
-        switch shape {
-        case .hidden: size = NSSize(width: 390, height: 12)
-        case .pill: size = NSSize(width: 410, height: 84)
-        case .card: size = NSSize(width: 520, height: 218)
-        case .setup: size = NSSize(width: 390, height: 240)
-        }
         guard let screen = panel.screen ?? NSScreen.main else { return }
-        let next = NSRect(
+        let contentTopInset = HUDLayout.contentTopInset(
+            safeAreaTop: screen.safeAreaInsets.top,
+            displayTopOverlap: Self.displayTopOverlap
+        )
+        hud.updateContentTopInset(contentTopInset)
+        let size = HUDLayout.panelSize(for: shape, contentTopInset: contentTopInset)
+        let settledFrame = NSRect(
             x: screen.frame.midX - size.width / 2,
-            y: screen.frame.maxY - size.height,
+            y: screen.frame.maxY - size.height + Self.displayTopOverlap,
             width: size.width,
             height: size.height
         )
         panel.ignoresMouseEvents = shape != .setup
+
+        // Keep the current horizontal footprint while retracting. Centering a
+        // narrower hidden panel during the animation made the HUD's left edge
+        // visibly slide right. Once it is out of sight, reset its resting width.
+        let animatedFrame: NSRect
+        if shape == .hidden {
+            animatedFrame = NSRect(
+                x: panel.frame.minX,
+                y: settledFrame.minY,
+                width: panel.frame.width,
+                height: settledFrame.height
+            )
+        } else {
+            animatedFrame = settledFrame
+        }
+
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.38
+            context.duration = shape == .hidden ? 0.46 : 0.38
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            panel.animator().setFrame(next, display: true)
+            panel.animator().setFrame(animatedFrame, display: true)
+        } completionHandler: { [weak self] in
+            Task { @MainActor in
+                guard let self, shape == .hidden, self.hud.shape == .hidden else { return }
+                self.panel.setFrame(settledFrame, display: false)
+            }
         }
     }
 
     @discardableResult
     private func handleKey(_ event: NSEvent) -> Bool {
-        let optionSpace = event.keyCode == 49 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.option)
-        if optionSpace {
+        let fnTapped = fnTap.consume(event)
+        if hud.shape == .setup {
+            guard hud.recordingShortcut, panel.isKeyWindow else { return false }
+            if fnTapped {
+                AppSettings.shared.voiceShortcut = .standard
+                hud.recordingShortcut = false
+                return true
+            }
+            guard event.type == .keyDown else { return false }
+            if event.keyCode == 53 { hud.recordingShortcut = false; return true }
+            if let shortcut = VoiceShortcut(event: event) {
+                AppSettings.shared.voiceShortcut = shortcut
+                hud.recordingShortcut = false
+            }
+            return true
+        }
+        if (AppSettings.shared.voiceShortcut.isFnOnly && fnTapped) || AppSettings.shared.voiceShortcut.matches(event) {
+            if event.type == .keyDown, event.isARepeat { return true }
             toggleOverlay()
             return true
         }
-        if event.keyCode == 53, hud.shape != .hidden, hud.shape != .setup {
-            hud.hide()
+        if event.type == .keyDown, event.keyCode == 53, hud.shape != .hidden, hud.shape != .setup {
+            cancelInput()
             return true
         }
         return false
@@ -158,11 +216,50 @@ final class Controller: NSObject {
 
     @objc private func toggleOverlay() {
         guard hud.shape != .setup else { return }
-        if hud.shape == .hidden {
-            followupUntil = Date().addingTimeInterval(10)
-            hud.show(.pill, title: "Go ahead, I’m listening")
-        } else {
-            hud.hide()
+        if active || Date() < followupUntil { cancelInput() }
+        else { armInput() }
+    }
+
+    private func cancelInput() {
+        VoiceResponder.shared.stop()
+        listeningTimeout?.cancel()
+        followupUntil = .distantPast
+        active = false
+        generation += 1
+        cached = nil
+        pendingConfirm = nil
+        // Discard the current recognition result as well as its partials, then
+        // return to the selected idle mode.
+        if listenerConfigured { listener.setEnabled(false) }
+        if AppSettings.shared.activationMode == .wakePhrase { listener.setEnabled(true) }
+        hud.hide()
+    }
+
+    private func armInput() {
+        guard hud.shape != .setup else { return }
+        Listener.requestPermissions { [weak self] in self?.beginArmedInput() }
+    }
+
+    private func beginArmedInput() {
+        guard hud.shape != .setup else { return }
+        VoiceResponder.shared.stop()
+        listeningTimeout?.cancel()
+        active = false
+        generation += 1
+        if !listener.enabled {
+            listener.setEnabled(true)
+            refreshPauseUI()
+        }
+        hud.beginInput()
+        followupUntil = Date().addingTimeInterval(20)
+        hud.show(.pill, title: AppSettings.shared.assistantLanguage.text(.goAhead))
+        let gen = generation
+        listeningTimeout = Task { @MainActor in
+            do { try await Task.sleep(nanoseconds: Self.activationDuration) } catch { return }
+            if self.generation == gen, !self.active {
+                self.finishVoiceSession()
+                self.hud.hide()
+            }
         }
     }
 
@@ -175,7 +272,15 @@ final class Controller: NSObject {
     }
 
     private func showSetup() {
+        VoiceResponder.shared.stop()
+        listeningTimeout?.cancel()
+        active = false
+        generation += 1
+        followupUntil = .distantPast
+        hud.beginInput()
+        hud.prepareSetup()
         if listenerConfigured { listener.setEnabled(false) }
+        setupAudioMeter.start()
         panel.ignoresMouseEvents = false
         hud.show(.setup, title: "Set up Jev Nodge")
         NSApp.activate(ignoringOtherApps: true)
@@ -187,27 +292,40 @@ final class Controller: NSObject {
         showSetup()
     }
 
-    /// Listening needs only mic + speech permissions. Accessibility is asked for too, but only typing and
-    /// clicking depend on it — opening apps and sites works without.
+    @objc private func openAccessibility() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// Saving settings checks Accessibility silently. Only an explicit menu action opens its settings.
     func startListening() {
         if !listenerConfigured {
             listener.onPartial = { [weak self] in self?.speculate($0) }
             listener.onFinal = { [weak self] in self?.run($0) }
+            listener.onLevel = { [weak self] in self?.hud.setAudioLevel($0) }
             listenerConfigured = true
         }
-        let prompt = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        log("launch: accessibility trusted=\(AXIsProcessTrustedWithOptions(prompt))")
-        Listener.requestPermissions { [self] in
-            // "Pause listening" must survive relaunches and rebuilds: a paused mic stays paused until the user resumes it.
-            let paused = UserDefaults.standard.bool(forKey: "paused")
-            if paused { log("launch: staying paused") }
-            listener.setEnabled(!paused)
+        log("launch: accessibility trusted=\(AXIsProcessTrusted())")
+        let startForSelectedMode = { [self] in
+            let wakeEnabled = AppSettings.shared.activationMode == .wakePhrase
+            listener.setEnabled(wakeEnabled)
             refreshPauseUI()
-            hud.show(.pill, title: paused ? "Jev Nodge is paused" : "Go ahead, I’m listening")
+            hud.beginInput()
+            let language = AppSettings.shared.assistantLanguage
+            hud.show(.pill, title: wakeEnabled
+                ? language.text(.wakePhraseOn)
+                : language.text(.pressToSpeak, AppSettings.shared.voiceShortcut.label))
+            let launchGeneration = self.generation
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
-                if !self.active { self.hud.hide() }
+                if self.generation == launchGeneration, !self.active, Date() >= self.followupUntil, self.hud.shape != .setup { self.hud.hide() }
             }
+        }
+        if AppSettings.shared.activationMode == .wakePhrase {
+            Listener.requestPermissions(then: startForSelectedMode)
+        } else {
+            startForSelectedMode()
         }
     }
 
@@ -259,29 +377,73 @@ final class Controller: NSObject {
     }
 
     private func refreshPauseUI() {
-        statusItem.menu?.items.first?.title = listener.enabled ? "Pause listening" : "Resume listening"
-        statusItem.button?.image = menuBarIcon(paused: !listener.enabled)
+        let wakeEnabled = AppSettings.shared.activationMode == .wakePhrase
+        let phrase = AppSettings.shared.wakePhrase.trimmingCharacters(in: .whitespacesAndNewlines)
+        let language = AppSettings.shared.assistantLanguage
+        statusItem.menu?.items.first?.title = wakeEnabled
+            ? "\(language.text(.disableWakePhrase)) “Hey \(phrase)”"
+            : language.text(.enableWakePhrase)
+        statusItem.button?.image = menuBarIcon(microphoneActive: listener.enabled)
     }
 
-    private func menuBarIcon(paused: Bool) -> NSImage? {
+    private func localizeMenu() {
+        let language = AppSettings.shared.assistantLanguage
+        for item in statusItem.menu?.items ?? [] {
+            switch item.action {
+            case #selector(toggleOverlay): item.title = language.text(.startVoiceInput)
+            case #selector(openSetup): item.title = language.text(.setup)
+            case #selector(openAccessibility): item.title = language.text(.enableAccessibility)
+            case #selector(openConfig): item.title = language.text(.editCommands)
+            case #selector(openLog): item.title = language.text(.openLog)
+            case #selector(NSApplication.terminate(_:)): item.title = language.text(.quit)
+            default: break
+            }
+        }
+        refreshPauseUI()
+    }
+
+    private func menuBarIcon(microphoneActive: Bool) -> NSImage? {
         let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
         let image = NSImage(
-            systemSymbolName: paused ? "waveform.circle" : "waveform.circle.fill",
-            accessibilityDescription: paused ? "Jev Nodge paused" : "Jev Nodge listening"
+            systemSymbolName: microphoneActive ? "waveform.circle.fill" : "waveform.circle",
+            accessibilityDescription: microphoneActive ? "Jev Nodge microphone active" : "Jev Nodge microphone off"
         )?.withSymbolConfiguration(configuration)
         image?.isTemplate = true
         return image
     }
 
-    @objc private func togglePause(_ item: NSMenuItem) {
-        listener.setEnabled(!listener.enabled)
-        UserDefaults.standard.set(!listener.enabled, forKey: "paused")
+    @objc private func toggleWakePhrase(_ item: NSMenuItem) {
+        VoiceResponder.shared.stop()
+        if AppSettings.shared.activationMode == .wakePhrase {
+            AppSettings.shared.setActivationMode(.shortcut)
+            cancelInput()
+        } else {
+            AppSettings.shared.setActivationMode(.wakePhrase)
+            Listener.requestPermissions { [weak self] in
+                guard let self else { return }
+                self.listener.setEnabled(true)
+                self.refreshPauseUI()
+                self.hud.show(.pill, title: AppSettings.shared.assistantLanguage.text(.wakePhraseOn))
+                let gen = self.generation
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    if self.generation == gen, !self.active { self.hud.hide() }
+                }
+            }
+        }
+    }
+
+    private func finishVoiceSession() {
+        listeningTimeout?.cancel()
+        followupUntil = .distantPast
+        active = false
+        if AppSettings.shared.activationMode == .shortcut { listener.setEnabled(false) }
         refreshPauseUI()
-        if !listener.enabled { active = false; generation += 1; hud.hide() }
     }
 
     /// First words of a new utterance: remember which app the command is aimed at.
     private func utteranceBegan() {
+        listeningTimeout?.cancel()
         active = true
         generation += 1
         cached = nil
@@ -295,7 +457,7 @@ final class Controller: NSObject {
                 if self.generation == gen || !self.active { (self.screenTargets, self.screenSource) = (targets, source) }
             }
         }
-        if pendingConfirm == nil { hud.show(.pill, title: "Listening...") }
+        if pendingConfirm == nil { hud.show(.pill, title: AppSettings.shared.assistantLanguage.text(.listening)) }
     }
 
     private func decide(_ heard: String) async throws -> Decision {
@@ -316,45 +478,39 @@ final class Controller: NSObject {
     private func commandText(from transcript: String) -> String? {
         let phrase = AppSettings.shared.wakePhrase.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !phrase.isEmpty else { return transcript.trimmingCharacters(in: .whitespacesAndNewlines) }
-        if let range = transcript.range(of: phrase, options: [.caseInsensitive, .diacriticInsensitive]) {
-            let after = transcript[range.upperBound...]
-                .trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
-            return after.isEmpty ? nil : after
-        }
-        return Date() < followupUntil ? transcript.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+        if let command = VoiceWake.command(in: transcript, name: phrase) { return command }
+        return active || Date() < followupUntil ? transcript.trimmingCharacters(in: .whitespacesAndNewlines) : nil
     }
 
     /// While the user is still talking, score partial transcripts so the HUD shows the decision forming live.
     private func speculate(_ partial: String) {
-        guard commandText(from: partial) != nil else { return }
+        guard let command = commandText(from: partial) else { return }
         if !active { utteranceBegan() }
-        guard !speculating, pendingConfirm == nil else { return }
+        hud.updateTranscript(command)
+        hud.show(.pill, title: AppSettings.shared.assistantLanguage.text(.listening))
+        guard !command.isEmpty, !speculating, pendingConfirm == nil else { return }
         speculating = true
         let gen = generation
         let sawScreen = !screenTargets.isEmpty
         Task { @MainActor in
             defer { self.speculating = false }
-            guard let d = try? await self.decide(partial), self.active, self.generation == gen else { return }
-            self.cached = (partial, d, sawScreen)
-            if let title = Registry[d.choice]?.title, d.confidence >= Registry.minConfidence {
-                self.hud.show(.card, title: title, subtitle: partial, probs: d.probs)
-            } else {
-                self.hud.show(.pill, title: "Listening...", subtitle: partial)
-            }
+            guard let d = try? await self.decide(command), self.active, self.generation == gen else { return }
+            self.cached = (command, d, sawScreen)
         }
     }
 
     private func run(_ heard: String) {
-        guard let heard = commandText(from: heard), !heard.isEmpty else {
-            active = false
-            hud.hide()
-            return
-        }
+        guard let heard = commandText(from: heard) else { return }
+        if heard.isEmpty { armInput(); return }
+        if !active { utteranceBegan() }
+        listeningTimeout?.cancel()
         followupUntil = Date().addingTimeInterval(8)
         active = false
         generation += 1
         let gen = generation
         guard !heard.isEmpty else { hud.hide(); return }
+        hud.updateTranscript(heard)
+        hud.show(.pill, title: AppSettings.shared.assistantLanguage.text(.working))
         Task { @MainActor in
             do {
                 if let pending = self.pendingConfirm {
@@ -364,28 +520,69 @@ final class Controller: NSObject {
                         try await self.run(pending.command, heard: pending.heard, probs: pending.probs)
                     } else {
                         log("confirm: cancelled \(pending.command.id)")
-                        self.hud.show(.card, title: "Cancelled", subtitle: pending.command.title)
+                        self.hud.show(.card, title: AppSettings.shared.assistantLanguage.text(.cancelled), subtitle: pending.command.title)
                     }
                 } else {
                     await self.screenScan?.value
                     let d: Decision
                     if let cached = self.cached, cached.heard == heard, cached.sawScreen || self.screenTargets.isEmpty { d = cached.decision } else { d = try await self.decide(heard) }
+                    guard self.generation == gen else { return }
                     log("decision: \(d.choice) confidence=\(d.confidence)")
                     try await self.perform(d, heard: heard)
                     log("result: \(self.hud.title) — \(self.hud.subtitle)")
                 }
             } catch {
+                guard self.generation == gen else { return }
                 log("error: \(error.localizedDescription)")
-                self.hud.show(.card, title: "Error", subtitle: error.localizedDescription)
+                self.hud.show(.card, title: AppSettings.shared.assistantLanguage.text(.error), subtitle: error.localizedDescription)
             }
+            guard self.generation == gen else { return }
             let hold = self.holdHUD
             self.holdHUD = false
-            try? await Task.sleep(nanoseconds: hold ? 10_000_000_000 : 1_600_000_000)
+            await self.deliverFeedback(for: heard, generation: gen)
+            guard self.generation == gen else { return }
+            self.followupUntil = Date().addingTimeInterval(12)
+            if let pending = self.pendingConfirm {
+                self.pendingConfirm = (pending.command, pending.heard, pending.probs, self.followupUntil)
+            }
+            try? await Task.sleep(nanoseconds: Self.resultDuration)
             if self.generation == gen {
-                if hold, self.pendingConfirm != nil { self.pendingConfirm = nil; log("confirm: timed out") }
+                if hold, self.pendingConfirm != nil {
+                    self.pendingConfirm = nil
+                    self.hud.show(.card, title: "Not run", subtitle: "I didn’t receive confirmation, so I left everything unchanged.")
+                    await self.deliverFeedback(for: heard, generation: gen)
+                    try? await Task.sleep(nanoseconds: Self.resultDuration)
+                }
+                guard self.generation == gen else { return }
                 self.hud.hide()
+                self.finishVoiceSession()
             }
         }
+    }
+
+    private func deliverFeedback(for heard: String, generation gen: Int) async {
+        guard generation == gen, hud.shape == .card else { return }
+        let title = hud.title
+        let detail = hud.subtitle
+        let wasListening = listener.enabled
+        // Avoid recognizing the assistant's own spoken reply as another command.
+        if wasListening { listener.setEnabled(false) }
+        defer {
+            if generation == gen, wasListening {
+                listener.setEnabled(true)
+            }
+        }
+        let reply: String
+        if title == "Answer" {
+            reply = detail
+        } else {
+            reply = (try? await AIClient.actionFeedback(request: heard, title: title, detail: detail))
+                ?? "\(title). \(detail)"
+        }
+        guard generation == gen else { return }
+        hud.show(.card, title: title, subtitle: reply)
+        VoiceResponder.shared.speak(reply)
+        await VoiceResponder.shared.waitUntilFinished()
     }
 
     /// Did the user say yes to the pending command? Anything that is not a clear yes cancels it.
@@ -433,7 +630,7 @@ final class Controller: NSObject {
             }
         }
         guard let command, Self.wouldAct(d) || known != nil else {
-            hud.hide()  // background talk is the normal case when always listening — stay out of the way
+            hud.show(.card, title: "Not recognized", subtitle: "Try saying the command another way.", probs: d.probs)
             return
         }
         if command.steps.contains(where: \.needsAccessibility), !AXIsProcessTrusted() {
@@ -442,7 +639,7 @@ final class Controller: NSObject {
         }
         if command.confirm {
             pendingConfirm = (command, heard, d.probs, Date().addingTimeInterval(10))
-            hud.show(.card, title: "\(command.title)?", subtitle: "Say «да» to run, «отмена» to cancel", hint: command.id, probs: d.probs)
+            hud.show(.card, title: "\(command.title)?", subtitle: "I haven’t run this yet. Say yes to confirm or no to cancel.", hint: command.id, probs: d.probs)
             log("confirm: waiting for a yes to run \(command.id)")
             holdHUD = true
             return
@@ -547,7 +744,6 @@ final class Controller: NSObject {
             hud.show(.pill, title: "Thinking")
             let answer = try await AIClient.reply(to: heard, frontmostApp: targetApp?.localizedName ?? "")
             hud.show(.card, title: "Answer", subtitle: answer, probs: probs)
-            VoiceResponder.shared.speak(answer)
 
         case "computer_task":
             try await computerTask(goal: heard, initialProbs: probs)
@@ -610,12 +806,7 @@ final class Controller: NSObject {
 
             switch choice.choice {
             case "done":
-                let answer = try await AIClient.reply(
-                    to: "Confirm briefly that this task is complete: \(goal). Actions performed: \(history.joined(separator: ", ")).",
-                    frontmostApp: app.localizedName ?? ""
-                )
-                hud.show(.card, title: "Done", subtitle: answer, hint: "\(history.count) grounded actions", probs: initialProbs)
-                VoiceResponder.shared.speak(answer)
+                hud.show(.card, title: "Done", subtitle: "The visible interface indicates completion. Actions performed: \(history.joined(separator: ", ")).", hint: "\(history.count) grounded actions", probs: initialProbs)
                 return
             case "blocked":
                 hud.show(.card, title: "Stopped safely", subtitle: "I can’t find a grounded next action.", hint: source, probs: choice.probs)

@@ -2,5 +2,4 @@
 set -euo pipefail
 
 project_dir="$(cd "$(dirname "$0")/.." && pwd)"
-"$project_dir/scripts/build-app.sh"
-open "$project_dir/dist/Jev Nodge.app"
+"$project_dir/scripts/install-app.sh"

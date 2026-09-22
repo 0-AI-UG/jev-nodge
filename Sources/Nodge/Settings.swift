@@ -1,61 +1,140 @@
 import Foundation
 import Security
 
+enum AssistantLanguage: String, CaseIterable, Identifiable {
+    case english = "en-US"
+    case german = "de-DE"
+    case russian = "ru-RU"
+    case spanish = "es-ES"
+    case french = "fr-FR"
+    case italian = "it-IT"
+    case portuguese = "pt-BR"
+    case chinese = "zh-CN"
+    case japanese = "ja-JP"
+
+    static let defaultsKey = "assistantLanguage"
+
+    var id: String { rawValue }
+    var localeIdentifier: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .english: return "English"
+        case .german: return "Deutsch"
+        case .russian: return "Русский"
+        case .spanish: return "Español"
+        case .french: return "Français"
+        case .italian: return "Italiano"
+        case .portuguese: return "Português"
+        case .chinese: return "中文"
+        case .japanese: return "日本語"
+        }
+    }
+
+    var promptName: String {
+        switch self {
+        case .english: return "English"
+        case .german: return "German"
+        case .russian: return "Russian"
+        case .spanish: return "Spanish"
+        case .french: return "French"
+        case .italian: return "Italian"
+        case .portuguese: return "Portuguese"
+        case .chinese: return "Simplified Chinese"
+        case .japanese: return "Japanese"
+        }
+    }
+
+    static var saved: AssistantLanguage? {
+        if let saved = UserDefaults.standard.string(forKey: defaultsKey),
+           let language = AssistantLanguage(rawValue: saved) {
+            return language
+        }
+        return nil
+    }
+
+    static var savedOrSystemDefault: AssistantLanguage {
+        if let saved { return saved }
+        let preferred = Locale.preferredLanguages.first?.lowercased() ?? "en"
+        return allCases.first { preferred.hasPrefix($0.rawValue.prefix(2).lowercased()) } ?? .english
+    }
+}
+
 @MainActor
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
+
+    enum ActivationMode: String, CaseIterable, Identifiable {
+        case shortcut
+        case wakePhrase
+
+        var id: String { rawValue }
+    }
 
     private enum Key {
         static let responseModel = "responseModel"
         static let jevModel = "jevModel"
         static let wakePhrase = "wakePhrase"
-        static let voiceProvider = "voiceProvider"
-        static let elevenLabsVoiceID = "elevenLabsVoiceID"
         static let setupComplete = "setupComplete"
+        static let voiceShortcut = "voiceShortcut"
+        static let activationMode = "activationMode"
     }
 
     @Published var responseModel: String
     @Published var jevModel: String
-    @Published var wakePhrase: String
-    @Published var voiceProvider: VoiceProvider
-    @Published var elevenLabsVoiceID: String
-    @Published private(set) var setupComplete: Bool
-
-    enum VoiceProvider: String, CaseIterable, Identifiable {
-        case system = "System voice"
-        case elevenLabs = "ElevenLabs"
-
-        var id: String { rawValue }
+    @Published var wakePhrase: String {
+        didSet { UserDefaults.standard.set(wakePhrase, forKey: Key.wakePhrase) }
     }
+    @Published var voiceShortcut: VoiceShortcut {
+        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(voiceShortcut), forKey: Key.voiceShortcut) }
+    }
+    @Published var activationMode: ActivationMode {
+        didSet { UserDefaults.standard.set(activationMode.rawValue, forKey: Key.activationMode) }
+    }
+    @Published var assistantLanguage: AssistantLanguage {
+        didSet { UserDefaults.standard.set(assistantLanguage.rawValue, forKey: AssistantLanguage.defaultsKey) }
+    }
+    @Published private(set) var setupComplete: Bool
 
     private init() {
         let defaults = UserDefaults.standard
+        let savedShortcut = defaults.data(forKey: Key.voiceShortcut)
+            .flatMap { try? JSONDecoder().decode(VoiceShortcut.self, from: $0) } ?? .standard
+        voiceShortcut = savedShortcut == .previousDefault ? .standard : savedShortcut
+        if savedShortcut == .previousDefault {
+            defaults.set(try? JSONEncoder().encode(VoiceShortcut.standard), forKey: Key.voiceShortcut)
+        }
         responseModel = defaults.string(forKey: Key.responseModel) ?? "~openai/gpt-latest"
         jevModel = defaults.string(forKey: Key.jevModel) ?? "~typesafe/jev-latest"
         wakePhrase = defaults.string(forKey: Key.wakePhrase) ?? "Jev"
-        voiceProvider = VoiceProvider(rawValue: defaults.string(forKey: Key.voiceProvider) ?? "") ?? .system
-        elevenLabsVoiceID = defaults.string(forKey: Key.elevenLabsVoiceID) ?? ""
-        setupComplete = defaults.bool(forKey: Key.setupComplete) && Keychain.read("openrouter") != nil
+        activationMode = ActivationMode(rawValue: defaults.string(forKey: Key.activationMode) ?? "") ?? .shortcut
+        assistantLanguage = AssistantLanguage.savedOrSystemDefault
+        setupComplete = defaults.bool(forKey: Key.setupComplete)
     }
 
     var openRouterKey: String? { Keychain.read("openrouter") ?? env["OPENROUTER_API_KEY"] }
-    var elevenLabsKey: String? { Keychain.read("elevenlabs") ?? env["ELEVENLABS_API_KEY"] }
 
-    func save(openRouterKey: String, elevenLabsKey: String) throws {
-        let openRouterKey = openRouterKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !openRouterKey.isEmpty else { throw SettingsError("Add an OpenRouter API key") }
-        try Keychain.write(openRouterKey, account: "openrouter")
-        if !elevenLabsKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            try Keychain.write(elevenLabsKey, account: "elevenlabs")
+    func save(openRouterKey replacementKey: String?) throws {
+        let replacementKey = replacementKey?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let replacementKey, !replacementKey.isEmpty {
+            try Keychain.write(replacementKey, account: "openrouter")
+        } else if openRouterKey == nil {
+            throw SettingsError("Add an OpenRouter API key")
         }
         let defaults = UserDefaults.standard
         defaults.set(responseModel, forKey: Key.responseModel)
         defaults.set(jevModel, forKey: Key.jevModel)
         defaults.set(wakePhrase, forKey: Key.wakePhrase)
-        defaults.set(voiceProvider.rawValue, forKey: Key.voiceProvider)
-        defaults.set(elevenLabsVoiceID, forKey: Key.elevenLabsVoiceID)
+        defaults.set(try JSONEncoder().encode(voiceShortcut), forKey: Key.voiceShortcut)
+        defaults.set(activationMode.rawValue, forKey: Key.activationMode)
+        defaults.set(assistantLanguage.rawValue, forKey: AssistantLanguage.defaultsKey)
         defaults.set(true, forKey: Key.setupComplete)
         setupComplete = true
+    }
+
+    func setActivationMode(_ mode: ActivationMode) {
+        activationMode = mode
+        UserDefaults.standard.set(mode.rawValue, forKey: Key.activationMode)
     }
 
     func resetSetup() {

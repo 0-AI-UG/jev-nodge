@@ -12,3 +12,16 @@ The project also draws architectural ideas from these MIT-licensed projects:
 - [`jcpsimmons/jev-macos-loop`](https://github.com/jcpsimmons/jev-macos-loop)
 
 No source code from the latter three projects is currently vendored.
+
+Local spoken replies use these open-source components:
+
+- [`OpenMOSS/MOSS-TTS-Nano`](https://github.com/OpenMOSS/MOSS-TTS-Nano),
+  including its MOSS Audio Tokenizer, under the Apache License 2.0
+- [`kyinwind/MOSSTTSKit`](https://github.com/kyinwind/MOSSTTSKit) under the
+  Apache License 2.0
+- [Microsoft ONNX Runtime](https://github.com/microsoft/onnxruntime) under the
+  MIT License
+- [Hugging Face Swift Transformers](https://github.com/huggingface/swift-transformers)
+  under the Apache License 2.0
+
+The MOSS model files are downloaded on first use and cached on the user's Mac.

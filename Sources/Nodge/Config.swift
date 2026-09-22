@@ -149,7 +149,7 @@ enum Registry {
     static let noneOption = ("none", "not a command for the computer: chatter, a question, thinking aloud, or noise")
 
     private(set) static var commands: [Command] = []
-    private(set) static var locale = env["JEV_LOCALE"] ?? "en-US"
+    private(set) static var locale = env["JEV_LOCALE"] ?? AssistantLanguage.savedOrSystemDefault.localeIdentifier
     private(set) static var minConfidence = 0.6
     private(set) static var silence = 0.9
     private(set) static var userCommandCount = 0
@@ -207,7 +207,10 @@ enum Registry {
         }
         commands = merged.filter { !disabled.contains($0.id) }
         userCommandCount = user.commands?.count ?? 0
-        locale = user.locale ?? env["JEV_LOCALE"] ?? "en-US"
+        locale = env["JEV_LOCALE"]
+            ?? AssistantLanguage.saved?.localeIdentifier
+            ?? user.locale
+            ?? AssistantLanguage.savedOrSystemDefault.localeIdentifier
         minConfidence = min(max(user.minConfidence ?? 0.6, 0.3), 0.95)
         silence = min(max(user.silence ?? 0.9, 0.4), 3)
         Parse.userSites = (user.sites ?? [:]).reduce(into: [:]) { $0[$1.key.lowercased()] = $1.value }
