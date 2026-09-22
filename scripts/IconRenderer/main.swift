@@ -20,32 +20,29 @@ struct NodgeAppIcon: View {
         ZStack {
             tile.fill(
                 LinearGradient(
-                    colors: [
-                        Color(red: 0.045, green: 0.05, blue: 0.06),
-                        Color(red: 0.008, green: 0.01, blue: 0.014),
-                    ],
+                    colors: [.black, Color(white: 0.12)],
                     startPoint: .top,
                     endPoint: .bottom
                 )
             )
 
             Canvas { context, size in
+                // Transform the complete effect so its blur and beams scale
+                // together, while the baseline remains on the bottom rim.
+                let verticalScale = 7.2
+                let horizontalScale = 1.75
+                var glowContext = context
+                glowContext.translateBy(x: size.width * (1 - horizontalScale) / 2, y: 0)
+                glowContext.scaleBy(x: horizontalScale, y: verticalScale)
                 PrismaticGlowRenderer.draw(
-                    in: context,
-                    size: size,
+                    in: glowContext,
+                    size: CGSize(width: size.width, height: size.height / verticalScale),
                     level: 0.35,
                     time: 0,
                     scale: size.width / 350
                 )
             }
-            .frame(height: 230)
-            .frame(maxHeight: .infinity, alignment: .bottom)
 
-            Image(systemName: "waveform.circle.fill")
-                .symbolRenderingMode(.palette)
-                .foregroundStyle(.black, .white)
-                .font(.system(size: 410, weight: .semibold))
-                .offset(y: -62)
 
             tile.strokeBorder(
                 LinearGradient(
